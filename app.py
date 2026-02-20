@@ -404,8 +404,6 @@ _ss_defaults = {
     "margin_debt": 798_000, "margin_debt_prev": 782_000,
     "period": "1y",
 }
-# file uploader non usa session_state ma serve var globale
-pcr_csv_file = None
 for _k, _v in _ss_defaults.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -448,7 +446,14 @@ with st.sidebar:
 
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Upload daily CSV da barchart.com<br>→ SPX Options → Put/Call Ratios → Download</div>', unsafe_allow_html=True)
-    pcr_csv_file = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
+    _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
+    if _uploaded is not None:
+        # Leggi subito i bytes e salvali in session_state (sopravvivono ai re-run)
+        st.session_state["pcr_csv_bytes"] = _uploaded.read()
+        st.session_state["pcr_csv_name"]  = _uploaded.name
+    if "pcr_csv_bytes" in st.session_state:
+        _fname = st.session_state.get("pcr_csv_name", "file.csv")
+        st.markdown(f'<div style="font-size:0.58rem;color:#00f5c4;margin-top:4px;">✅ {_fname}</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">⚙️ Settings</div>', unsafe_allow_html=True)
     period_opts = ["6mo", "1y", "2y", "5y"]
@@ -478,12 +483,28 @@ st.markdown(f'<div class="ts-bar">Last fetch: {now} &nbsp;|&nbsp; Breadth/OI/Mar
 # Dati fetchati con cache 4h — non si ricaricano ad ogni interazione sidebar
 data = fetch_price_data(period)
 
-# ── PCR da CSV Barchart (se caricato) ──────────────
+# ── PCR da CSV Barchart — legge da session_state (bytes persistenti) ──
 pcr_barchart_val  = None
 pcr_barchart_puts = None
 pcr_barchart_call = None
-if pcr_csv_file is not None:
-    pcr_barchart_val, pcr_barchart_puts, pcr_barchart_call = parse_barchart_pcr(pcr_csv_file)
+if "pcr_csv_bytes" in st.session_state:
+    try:
+        import io as _io
+        _raw = st.session_state["pcr_csv_bytes"].decode("utf-8")
+        _lines = [l for l in _raw.splitlines() if not l.startswith('"Downloaded')]
+        _clean = "\n".join(_lines).replace("Put/Call\tVol", "PC_Vol_Ratio")
+        _df = pd.read_csv(_io.StringIO(_clean))
+        _df["DTE"]      = pd.to_numeric(_df["DTE"], errors="coerce")
+        _df["Put Vol"]  = pd.to_numeric(_df["Put Vol"], errors="coerce")
+        _df["Call Vol"] = pd.to_numeric(_df["Call Vol"], errors="coerce")
+        _df_near = _df[_df["DTE"] <= 60].dropna(subset=["Put Vol","Call Vol"])
+        if not _df_near.empty:
+            pcr_barchart_puts = int(_df_near["Put Vol"].sum())
+            pcr_barchart_call = int(_df_near["Call Vol"].sum())
+            if pcr_barchart_call > 0:
+                pcr_barchart_val = round(pcr_barchart_puts / pcr_barchart_call, 4)
+    except Exception as _e:
+        pass  # fallback silenzioso, mostra N/A
 
 spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")

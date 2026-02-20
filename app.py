@@ -323,15 +323,20 @@ def get_close(data, ticker):
     return close.squeeze().dropna()
 
 def compute_ad_line(data):
+    """
+    Costruisce A/D Line cumulativa NYSE.
+    Ritorna tuple (ad_line, adv_series, dec_series) oppure (None,None,None).
+    """
     adv = get_close(data, "^NYADV")
     dec = get_close(data, "^NYDEC")
     if adv is None or dec is None:
-        return None
+        return None, None, None
     adv_a, dec_a = adv.align(dec, join="inner")
     adv_a = pd.Series(adv_a.values, index=adv_a.index)
     dec_a = pd.Series(dec_a.values, index=dec_a.index)
-    diff = adv_a - dec_a
-    return diff.cumsum()
+    diff  = adv_a - dec_a
+    ad_cum = diff.cumsum()
+    return ad_cum, adv_a, dec_a
 
 def compute_skew_vix(data):
     vix   = get_close(data, "^VIX")
@@ -354,8 +359,39 @@ def compute_skew_vix(data):
     return ratio, vix3m_aligned, vix_aligned
 
 def compute_pcr(data):
+    """Try yfinance first, fallback returns None (handled by CSV upload)."""
     cpc = get_close(data, "^CPC")
     return cpc
+
+def parse_barchart_pcr(uploaded_file):
+    """
+    Parsa CSV Barchart SPX Put/Call ratios.
+    Aggrega per data: somma Put Vol e Call Vol di tutte le scadenze → PCR giornaliero totale.
+    """
+    try:
+        import io
+        raw = uploaded_file.read().decode("utf-8")
+        # Rimuovi ultima riga (footer Barchart "Downloaded from...")
+        lines = [l for l in raw.splitlines() if not l.startswith('"Downloaded')]
+        clean = "\n".join(lines)
+        # Tab in header → sostituisci
+        clean = clean.replace("Put/Call\tVol", "PC_Vol_Ratio")
+        df = pd.read_csv(io.StringIO(clean))
+        df.columns = df.columns.str.strip().str.replace('"','')
+        # Aggrega per data: weighted PCR = sum(PutVol) / sum(CallVol)
+        df["Expiration Date"] = pd.to_datetime(df["Expiration Date"])
+        # Filtra solo scadenze entro 60 giorni (near-term, più rilevanti per sentiment)
+        df_near = df[df["DTE"] <= 60].copy()
+        if df_near.empty:
+            df_near = df.copy()
+        total_put  = df_near["Put Vol"].sum()
+        total_call = df_near["Call Vol"].sum()
+        pcr_today  = total_put / total_call if total_call > 0 else None
+        # Per grafico storico: restituiamo il PCR aggregato as-of today
+        # (il CSV è snapshot giornaliero → un solo punto per upload)
+        return pcr_today, total_put, total_call
+    except Exception as e:
+        return None, None, None
 
 
 # ─────────────────────────────────────────────
@@ -364,10 +400,12 @@ def compute_pcr(data):
 # ─────────────────────────────────────────────
 _ss_defaults = {
     "s5th": 55, "s5fi": 48, "ndth": 52, "ndfi": 44,
-    "sp_oi": 2_850_000, "sp_oi_prev": 2_820_000,
+    "sp_oi": 1_932_596, "sp_oi_prev": 1_918_311,  # CME MAR26 19-Feb-2026
     "margin_debt": 798_000, "margin_debt_prev": 782_000,
     "period": "1y",
 }
+# file uploader non usa session_state ma serve var globale
+pcr_csv_file = None
 for _k, _v in _ss_defaults.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -398,7 +436,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section">📈 Futures OI</div>', unsafe_allow_html=True)
     sp_oi = st.number_input("S&P500 Futures OI (contracts)", min_value=0,
         value=st.session_state["sp_oi"], step=10_000, key="sp_oi",
-        help="From CME Group website — E-mini S&P 500 total OI")
+        help="CME: cmegroup.com → E-mini S&P500 → Volume & OI → MAR26 AT CLOSE")
     sp_oi_prev = st.number_input("OI prev. week", min_value=0,
         value=st.session_state["sp_oi_prev"], step=10_000, key="sp_oi_prev")
 
@@ -407,6 +445,10 @@ with st.sidebar:
         value=st.session_state["margin_debt"], step=1_000, key="margin_debt")
     margin_debt_prev = st.number_input("Margin Debt prev. month ($M)", min_value=0,
         value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
+
+    st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Upload daily CSV da barchart.com<br>→ SPX Options → Put/Call Ratios → Download</div>', unsafe_allow_html=True)
+    pcr_csv_file = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
 
     st.markdown('<div class="sidebar-section">⚙️ Settings</div>', unsafe_allow_html=True)
     period_opts = ["6mo", "1y", "2y", "5y"]
@@ -436,11 +478,18 @@ st.markdown(f'<div class="ts-bar">Last fetch: {now} &nbsp;|&nbsp; Breadth/OI/Mar
 # Dati fetchati con cache 4h — non si ricaricano ad ogni interazione sidebar
 data = fetch_price_data(period)
 
+# ── PCR da CSV Barchart (se caricato) ──────────────
+pcr_barchart_val  = None
+pcr_barchart_puts = None
+pcr_barchart_call = None
+if pcr_csv_file is not None:
+    pcr_barchart_val, pcr_barchart_puts, pcr_barchart_call = parse_barchart_pcr(pcr_csv_file)
+
 spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
 vix_s  = get_close(data, "^VIX")
 skew_ratio, vix3m_s, vix_s2 = compute_skew_vix(data)
-ad_line = compute_ad_line(data)
+ad_line, adv_series, dec_series = compute_ad_line(data)
 pcr_s   = compute_pcr(data)
 
 def last(series):
@@ -635,17 +684,71 @@ with tab2:
 
     # Advance/Decline
     st.markdown('<div class="section-label">NYSE Advance/Decline Line (cumulative)</div>', unsafe_allow_html=True)
-    if ad_line is not None:
-        fig_ad = go.Figure()
-        fig_ad.add_trace(go.Scatter(x=ad_line.index, y=ad_line.values, name="A/D Line",
-                                     fill="tozeroy",
-                                     fillcolor="rgba(77,166,255,0.08)",
-                                     line=dict(color=BLUE, width=1.5)))
-        fig_ad.add_hline(y=0, line_dash="dot", line_color=AMBER, line_width=1)
-        fig_ad.update_layout(**base_layout("NYSE Advance-Decline Line", 300))
+    if ad_line is not None and spy_s is not None:
+        # Grafico stile marketinout: indice sopra, A/D line sotto
+        fig_ad = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.04,
+            subplot_titles=("SPY Price", "NYSE Advance / Decline Line (cumulative)"),
+            row_heights=[0.45, 0.55],
+        )
+        # Panel 1: SPY price
+        fig_ad.add_trace(go.Scatter(
+            x=spy_s.index, y=spy_s.values, name="SPY",
+            line=dict(color=CYAN, width=1.5)), row=1, col=1)
+
+        # Panel 2: A/D line con area
+        fig_ad.add_trace(go.Scatter(
+            x=ad_line.index, y=ad_line.values, name="A/D Line",
+            fill="tozeroy",
+            fillcolor="rgba(77,166,255,0.10)",
+            line=dict(color=BLUE, width=1.8)), row=2, col=1)
+
+        # A/D smoothed MA 20
+        ad_ma = ad_line.rolling(20).mean()
+        fig_ad.add_trace(go.Scatter(
+            x=ad_ma.index, y=ad_ma.values, name="MA20",
+            line=dict(color=AMBER, width=1.2, dash="dot")), row=2, col=1)
+
+        fig_ad.add_hline(y=0, line_dash="dot", line_color="#4a6070", line_width=1, row=2, col=1)
+
+        fig_ad.update_layout(**base_layout("", 420))
+        fig_ad.update_layout(
+            paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
+            xaxis2=dict(gridcolor=GRID_COL),
+            yaxis2=dict(gridcolor=GRID_COL,
+                        title=dict(text="A/D cumul.", font=dict(size=9, color=TEXT_COL))),
+        )
         st.plotly_chart(fig_ad, use_container_width=True, config={"displayModeBar": False})
+
+        # Riga metrica A/D
+        ad_today = float(ad_line.iloc[-1])
+        adv_today = int(adv_series.iloc[-1]) if adv_series is not None else 0
+        dec_today = int(dec_series.iloc[-1]) if dec_series is not None else 0
+        ad_trend = "🟢 Bullish" if ad_line.iloc[-1] > ad_line.iloc[-5] else "🔴 Bearish"
+        st.markdown(f"""
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <div class="metric-tile blue" style="flex:1">
+            <div class="metric-label">A/D Cumulativo</div>
+            <div class="metric-value" style="font-size:1.4rem">{ad_today:,.0f}</div>
+          </div>
+          <div class="metric-tile" style="flex:1">
+            <div class="metric-label">Advancing oggi</div>
+            <div class="metric-value up" style="font-size:1.4rem">{adv_today:,}</div>
+          </div>
+          <div class="metric-tile red" style="flex:1">
+            <div class="metric-label">Declining oggi</div>
+            <div class="metric-value down" style="font-size:1.4rem">{dec_today:,}</div>
+          </div>
+          <div class="metric-tile amber" style="flex:1">
+            <div class="metric-label">Trend A/D (5d)</div>
+            <div class="metric-value" style="font-size:1.1rem">{ad_trend}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.warning("A/D Line data unavailable — ^NYADV / ^NYDEC not fetched.")
+        st.warning("A/D Line: ^NYADV / ^NYDEC non disponibili via yfinance in questo momento.")
 
 # ══════════════════════════════════════════════
 #  TAB 3 · SENTIMENT
@@ -690,27 +793,66 @@ with tab3:
             fig_skh.update_layout(**base_layout("VIX3M/VIX Ratio History", 260))
             st.plotly_chart(fig_skh, use_container_width=True, config={"displayModeBar": False})
 
-    # Put/Call Ratio
-    st.markdown('<div class="section-label">Put/Call Ratio (CBOE Total)</div>', unsafe_allow_html=True)
+    # Put/Call Ratio — CSV Barchart ha priorità, poi yfinance
+    st.markdown('<div class="section-label">Put/Call Ratio SPX — Near-Term Options</div>', unsafe_allow_html=True)
+
+    # Determina valore PCR attivo
+    active_pcr   = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
+    pcr_source   = "Barchart CSV" if pcr_barchart_val else ("yfinance ^CPC" if pcr_last else "N/A")
+    pcr_series   = pcr_s  # storico yfinance se disponibile
+
     c3, c4 = st.columns([1, 3])
     with c3:
-        pcr_val = pcr_last if pcr_last else 0.85
-        fig_pcr_g = gauge(pcr_val, "Put/Call Ratio", 0.4, 1.5,
-                           thresholds=[40, 70], unit="x", fmt=".2f", invert=True)
+        pcr_display = active_pcr if active_pcr else 0.85
+        fig_pcr_g = gauge(pcr_display, f"Put/Call · {pcr_source}", 0.4, 1.8,
+                           thresholds=[35, 65], unit="x", fmt=".2f", invert=True)
         st.plotly_chart(fig_pcr_g, use_container_width=True, config={"displayModeBar": False})
+
+        # Se CSV: mostra breakdown Put/Call volumi
+        if pcr_barchart_val and pcr_barchart_puts and pcr_barchart_call:
+            pct_put = pcr_barchart_puts / (pcr_barchart_puts + pcr_barchart_call) * 100
+            st.markdown(f"""
+            <div style="font-size:0.62rem;color:#8ab0c8;border:1px solid #1c2a3a;
+                        padding:8px;border-radius:4px;margin-top:8px;line-height:1.9">
+              <b style="color:#c8d8e8">SPX Near-Term (&lt;60 DTE)</b><br>
+              Put Vol: <b style="color:{RED}">{pcr_barchart_puts:,}</b><br>
+              Call Vol: <b style="color:{CYAN}">{pcr_barchart_call:,}</b><br>
+              % Put: <b>{pct_put:.1f}%</b>
+            </div>""", unsafe_allow_html=True)
+
     with c4:
-        if pcr_s is not None:
-            # 10-day SMA
-            pcr_ma = pcr_s.rolling(10).mean()
+        if pcr_series is not None:
+            pcr_ma = pcr_series.rolling(10).mean()
             fig_pcr = go.Figure()
-            fig_pcr.add_trace(go.Bar(x=pcr_s.index, y=pcr_s.values, name="Daily P/C",
-                                      marker_color="rgba(77,166,255,0.3)"))
+            fig_pcr.add_trace(go.Bar(x=pcr_series.index, y=pcr_series.values, name="Daily P/C",
+                                      marker_color="rgba(77,166,255,0.25)"))
             fig_pcr.add_trace(go.Scatter(x=pcr_ma.index, y=pcr_ma.values, name="10d SMA",
                                           line=dict(color=BLUE, width=1.8)))
+            # Marca valore oggi da CSV se disponibile
+            if pcr_barchart_val:
+                fig_pcr.add_hline(y=pcr_barchart_val, line_dash="solid",
+                                   line_color=AMBER, line_width=1.5,
+                                   annotation_text=f"Today CSV: {pcr_barchart_val:.2f}",
+                                   annotation_position="top right",
+                                   annotation_font=dict(color=AMBER, size=9))
             fig_pcr.add_hline(y=1.0, line_dash="dot", line_color=RED, line_width=1)
-            fig_pcr.add_hline(y=0.7, line_dash="dot", line_color=CYAN, line_width=1)
-            fig_pcr.update_layout(**base_layout("CBOE Total Put/Call Ratio", 280))
+            fig_pcr.add_hline(y=0.7, line_dash="dot", line_color=CYAN, line_width=1,
+                               annotation_text="0.70", annotation_position="right",
+                               annotation_font=dict(color=CYAN, size=8))
+            fig_pcr.update_layout(**base_layout("Storico P/C (^CPC yfinance) + oggi CSV", 280))
             st.plotly_chart(fig_pcr, use_container_width=True, config={"displayModeBar": False})
+        elif pcr_barchart_val:
+            # Solo dato oggi, nessuno storico
+            st.markdown(f"""
+            <div style="background:#0e1420;border:1px solid #1c2a3a;padding:20px;
+                        border-radius:4px;text-align:center;margin-top:20px">
+              <div style="font-size:0.6rem;letter-spacing:3px;color:#7a9ab0">P/C RATIO OGGI (CSV)</div>
+              <div style="font-family:Syne;font-size:3rem;font-weight:700;
+                          color:{'#ff4d6d' if pcr_barchart_val > 1.0 else '#00f5c4'}">{pcr_barchart_val:.3f}</div>
+              <div style="font-size:0.65rem;color:#7a9ab0">Carica il CSV ogni giorno per aggiornare</div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.info("📂 Carica il CSV Barchart nella sidebar per visualizzare il P/C Ratio SPX.")
 
     # PCR interpretation note
     st.markdown("""

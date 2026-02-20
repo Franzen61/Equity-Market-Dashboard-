@@ -322,85 +322,7 @@ def get_close(data, ticker):
         close = close.iloc[:, 0]
     return close.squeeze().dropna()
 
-@st.cache_data(ttl=14400, show_spinner=False)
-def fetch_ad_data(period="1y"):
-    """
-    Fetch NYSE Advance/Decline data.
-    Prova in ordine:
-    1. yfinance tickers alternativi (^ADVN, ^DECN, ^NYADV, ^NYDEC)
-    2. Stooq.com via requests (fonte gratuita affidabile)
-    Ritorna dict con chiavi 'adv' e 'dec' come pd.Series, oppure vuoto.
-    """
-    result = {}
 
-    # — Tentativo 1: yfinance con ticker alternativi —
-    alt_pairs = [("^ADVN","^DECN"), ("^NYADV","^NYDEC"), ("^ADV","^DEC")]
-    for adv_t, dec_t in alt_pairs:
-        try:
-            adv_df = yf.download(adv_t, period=period, progress=False,
-                                  auto_adjust=True, timeout=10)
-            dec_df = yf.download(dec_t, period=period, progress=False,
-                                  auto_adjust=True, timeout=10)
-            if not adv_df.empty and not dec_df.empty:
-                adv_s = adv_df["Close"].squeeze().dropna()
-                dec_s = dec_df["Close"].squeeze().dropna()
-                if isinstance(adv_s, pd.Series) and len(adv_s) > 20:
-                    result["adv"] = pd.Series(adv_s.values, index=adv_s.index)
-                    result["dec"] = pd.Series(dec_s.values, index=dec_s.index)
-                    result["source"] = adv_t
-                    return result
-        except Exception:
-            pass
-
-    # — Tentativo 2: Stooq via requests —
-    try:
-        import requests, io
-        # Stooq fornisce NYSE advancing/declining issues
-        # $NYADV.US e $NYDEC.US
-        period_map = {"6mo": 180, "1y": 365, "2y": 730, "5y": 1825}
-        days = period_map.get(period, 365)
-        end   = datetime.date.today()
-        start = end - datetime.timedelta(days=days)
-
-        def stooq_fetch(symbol):
-            url = (f"https://stooq.com/q/d/l/?s={symbol}"
-                   f"&d1={start.strftime('%Y%m%d')}"
-                   f"&d2={end.strftime('%Y%m%d')}&i=d")
-            r = requests.get(url, timeout=12,
-                             headers={"User-Agent": "Mozilla/5.0"})
-            df = pd.read_csv(io.StringIO(r.text))
-            df.columns = df.columns.str.strip()
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.set_index("Date").sort_index()
-            return df["Close"].dropna()
-
-        adv_s = stooq_fetch("%24nyadv.us")
-        dec_s = stooq_fetch("%24nydec.us")
-        if len(adv_s) > 20:
-            result["adv"]    = pd.Series(adv_s.values, index=adv_s.index)
-            result["dec"]    = pd.Series(dec_s.values, index=dec_s.index)
-            result["source"] = "Stooq"
-            return result
-    except Exception:
-        pass
-
-    return result  # vuoto → fallback a upload manuale
-
-
-def compute_ad_line(ad_data):
-    """
-    Costruisce A/D Line cumulativa da dict {adv, dec}.
-    Ritorna tuple (ad_line, adv_series, dec_series) oppure (None,None,None).
-    """
-    if not ad_data or "adv" not in ad_data:
-        return None, None, None
-    adv = ad_data["adv"]
-    dec = ad_data["dec"]
-    adv_a, dec_a = adv.align(dec, join="inner")
-    adv_a = pd.Series(adv_a.values, index=adv_a.index)
-    dec_a = pd.Series(dec_a.values, index=dec_a.index)
-    diff  = adv_a - dec_a
-    return diff.cumsum(), adv_a, dec_a
 
 def compute_skew_vix(data):
     vix   = get_close(data, "^VIX")
@@ -508,22 +430,6 @@ with st.sidebar:
     margin_debt_prev = st.number_input("Margin Debt prev. month ($M)", min_value=0,
         value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
 
-    st.markdown('<div class="sidebar-section">📈 A/D Line CSV (opzionale)</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Auto: Stooq.com · Manuale se offline<br>→ macrotrends.net/2119 → Download CSV<br>→ Oppure stooq.com → $NYADV.US → CSV<br>Colonne richieste: Date, Advancing, Declining</div>', unsafe_allow_html=True)
-    _ad_uploaded = st.file_uploader("A/D CSV", type="csv", label_visibility="collapsed", key="ad_uploader")
-    if _ad_uploaded is not None:
-        _ad_bytes = _ad_uploaded.getvalue()
-        if _ad_bytes and len(_ad_bytes) > 10:
-            st.session_state["ad_csv_bytes"] = _ad_bytes
-            st.session_state["ad_csv_name"]  = _ad_uploaded.name
-    if "ad_csv_bytes" in st.session_state:
-        _adfname = st.session_state.get("ad_csv_name", "ad.csv")
-        st.markdown(f'<div style="font-size:0.58rem;color:#00f5c4;margin-top:4px;">✅ {_adfname}</div>', unsafe_allow_html=True)
-        if st.button("🗑 Rimuovi A/D CSV", use_container_width=True):
-            del st.session_state["ad_csv_bytes"]
-            del st.session_state["ad_csv_name"]
-            st.rerun()
-
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Upload daily CSV da barchart.com<br>→ SPX Options → Put/Call Ratios → Download</div>', unsafe_allow_html=True)
     _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
@@ -568,30 +474,6 @@ st.markdown(f'<div class="ts-bar">Last fetch: {now} &nbsp;|&nbsp; Breadth/OI/Mar
 # Dati fetchati con cache 4h — non si ricaricano ad ogni interazione sidebar
 data = fetch_price_data(period)
 
-# Fetch A/D Line (Stooq o yfinance alternativi)
-ad_data = fetch_ad_data(period)
-
-# Fallback: CSV manuale se Stooq non disponibile
-if not ad_data and "ad_csv_bytes" in st.session_state:
-    try:
-        import io as _io2
-        _ad_raw = st.session_state["ad_csv_bytes"].decode("utf-8")
-        _ad_df  = pd.read_csv(_io2.StringIO(_ad_raw))
-        _ad_df.columns = _ad_df.columns.str.strip()
-        # Accetta colonne: Date, Advancing/Adv, Declining/Dec
-        _date_col = next((c for c in _ad_df.columns if "date" in c.lower()), None)
-        _adv_col  = next((c for c in _ad_df.columns if c.lower() in ["advancing","adv","advances"]), None)
-        _dec_col  = next((c for c in _ad_df.columns if c.lower() in ["declining","dec","declines"]), None)
-        if _date_col and _adv_col and _dec_col:
-            _ad_df[_date_col] = pd.to_datetime(_ad_df[_date_col])
-            _ad_df = _ad_df.set_index(_date_col).sort_index()
-            ad_data = {
-                "adv": pd.to_numeric(_ad_df[_adv_col], errors="coerce").dropna(),
-                "dec": pd.to_numeric(_ad_df[_dec_col], errors="coerce").dropna(),
-                "source": "CSV manuale",
-            }
-    except Exception:
-        pass
 
 # ── PCR da CSV Barchart — legge da session_state (bytes persistenti) ──
 pcr_barchart_val  = None
@@ -624,7 +506,6 @@ spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
 vix_s  = get_close(data, "^VIX")
 skew_ratio, vix3m_s, vix_s2 = compute_skew_vix(data)
-ad_line, adv_series, dec_series = compute_ad_line(ad_data)
 pcr_s   = compute_pcr(data)
 
 def last(series):
@@ -654,7 +535,6 @@ qqq_last  = last(qqq_s)
 vix_last  = last(vix_s)
 skew_last = last(skew_ratio)
 pcr_last  = last(pcr_s)
-ad_last   = last(ad_line)
 
 # PCR attivo: CSV Barchart ha priorità su yfinance
 active_pcr = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
@@ -821,84 +701,62 @@ with tab2:
     df_interp = pd.DataFrame(interp_data)
     st.dataframe(df_interp, hide_index=True, use_container_width=True)
 
-    # Advance/Decline
-    st.markdown('<div class="section-label">NYSE Advance/Decline Line (cumulative)</div>', unsafe_allow_html=True)
-    if ad_line is not None and spy_s is not None:
-        # Grafico stile marketinout: indice sopra, A/D line sotto
-        fig_ad = make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.04,
-            subplot_titles=("SPY Price", "NYSE Advance / Decline Line (cumulative)"),
-            row_heights=[0.45, 0.55],
-        )
-        # Panel 1: SPY price
-        fig_ad.add_trace(go.Scatter(
-            x=spy_s.index, y=spy_s.values, name="SPY",
-            line=dict(color=CYAN, width=1.5)), row=1, col=1)
+    # ── Advance/Decline — Screenshot manuale settimanale ──
+    st.markdown('<div class="section-label">NYSE Advance/Decline Line — Screenshot Settimanale</div>', unsafe_allow_html=True)
 
-        # Panel 2: A/D line con area
-        fig_ad.add_trace(go.Scatter(
-            x=ad_line.index, y=ad_line.values, name="A/D Line",
-            fill="tozeroy",
-            fillcolor="rgba(77,166,255,0.10)",
-            line=dict(color=BLUE, width=1.8)), row=2, col=1)
+    # Uploader immagine
+    _ad_img = st.file_uploader(
+        "Carica screenshot A/D Line (PNG/JPG)",
+        type=["png","jpg","jpeg","webp"],
+        label_visibility="collapsed",
+        key="ad_screenshot"
+    )
+    if _ad_img is not None:
+        st.session_state["ad_img_bytes"] = _ad_img.getvalue()
+        st.session_state["ad_img_name"]  = _ad_img.name
+        st.session_state["ad_img_date"]  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # A/D smoothed MA 20
-        ad_ma = ad_line.rolling(20).mean()
-        fig_ad.add_trace(go.Scatter(
-            x=ad_ma.index, y=ad_ma.values, name="MA20",
-            line=dict(color=AMBER, width=1.2, dash="dot")), row=2, col=1)
-
-        fig_ad.add_hline(y=0, line_dash="dot", line_color="#4a6070", line_width=1, row=2, col=1)
-
-        fig_ad.update_layout(**base_layout("", 420))
-        fig_ad.update_layout(
-            paper_bgcolor=PAPER_BG, plot_bgcolor=PLOT_BG,
-            xaxis2=dict(gridcolor=GRID_COL),
-            yaxis2=dict(gridcolor=GRID_COL,
-                        title=dict(text="A/D cumul.", font=dict(size=9, color=TEXT_COL))),
-        )
-        st.plotly_chart(fig_ad, use_container_width=True, config={"displayModeBar": False})
-
-        # Riga metrica A/D
-        ad_today = float(ad_line.iloc[-1])
-        adv_today = int(adv_series.iloc[-1]) if adv_series is not None else 0
-        dec_today = int(dec_series.iloc[-1]) if dec_series is not None else 0
-        ad_trend = "🟢 Bullish" if ad_line.iloc[-1] > ad_line.iloc[-5] else "🔴 Bearish"
-        st.markdown(f"""
-        <div style="display:flex;gap:12px;margin-top:8px">
-          <div class="metric-tile blue" style="flex:1">
-            <div class="metric-label">A/D Cumulativo</div>
-            <div class="metric-value" style="font-size:1.4rem">{ad_today:,.0f}</div>
+    if "ad_img_bytes" in st.session_state:
+        # Mostra screenshot full-width con bordo e data upload
+        _upload_date = st.session_state.get("ad_img_date","")
+        _upload_name = st.session_state.get("ad_img_name","")
+        st.markdown(f'''
+        <div style="border:1px solid #1c2a3a;border-radius:4px;overflow:hidden;margin-bottom:8px">
+          <div style="background:#0e1420;padding:6px 12px;font-size:0.58rem;
+                      color:#7a9ab0;letter-spacing:2px;display:flex;justify-content:space-between">
+            <span>📊 NYSE A/D LINE</span>
+            <span>Caricato: {_upload_date} · {_upload_name}</span>
           </div>
-          <div class="metric-tile" style="flex:1">
-            <div class="metric-label">Advancing oggi</div>
-            <div class="metric-value up" style="font-size:1.4rem">{adv_today:,}</div>
-          </div>
-          <div class="metric-tile red" style="flex:1">
-            <div class="metric-label">Declining oggi</div>
-            <div class="metric-value down" style="font-size:1.4rem">{dec_today:,}</div>
-          </div>
-          <div class="metric-tile amber" style="flex:1">
-            <div class="metric-label">Trend A/D (5d)</div>
-            <div class="metric-value" style="font-size:1.1rem">{ad_trend}</div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>''', unsafe_allow_html=True)
+        st.image(st.session_state["ad_img_bytes"], use_container_width=True)
+
+        c_rem, c_src = st.columns([1, 3])
+        with c_rem:
+            if st.button("🗑 Rimuovi", use_container_width=True, key="rm_ad_img"):
+                del st.session_state["ad_img_bytes"]
+                del st.session_state["ad_img_name"]
+                del st.session_state["ad_img_date"]
+                st.rerun()
+        with c_src:
+            st.markdown('<div style="font-size:0.6rem;color:#4a6070;padding-top:8px">'
+                        'Fonte consigliata: marketinout.com → Advance/Decline Line'
+                        ' oppure stockcharts.com → $NYAD'
+                        '</div>', unsafe_allow_html=True)
     else:
-        ad_source = ad_data.get("source", "") if ad_data else ""
         st.markdown("""
-        <div style="background:#0e1420;border:1px solid #1c2a3a;padding:14px;border-radius:4px;font-size:0.65rem;color:#8ab0c8;line-height:2.2">
-          <b style="color:#f5a623;letter-spacing:2px">A/D LINE — DATI NON DISPONIBILI AUTOMATICAMENTE</b><br>
-          Il fetch automatico da Stooq.com è in corso — riprova fra qualche minuto con <b>Refresh Data</b>.<br>
-          <br>
-          <b style="color:#c8d8e8">In alternativa, carica il CSV manualmente dalla sidebar:</b><br>
-          📌 <b>Fonte 1 (consigliata):</b> <a href="https://www.macrotrends.net/2119/nyse-advance-decline-issues-data" target="_blank" style="color:#4da6ff">macrotrends.net → NYSE Advance Decline</a> → Download CSV<br>
-          📌 <b>Fonte 2:</b> <a href="https://stooq.com/q/d/?s=%24nyadv.us" target="_blank" style="color:#4da6ff">stooq.com → $NYADV.US</a> → scarica CSV storico<br>
-          📌 <b>Fonte 3:</b> <a href="https://finance.yahoo.com/quote/%5EADVN/" target="_blank" style="color:#4da6ff">Yahoo Finance → ^ADVN</a> → Historical Data → Download<br>
-          <br>
-          <span style="color:#4a6070">Formato CSV accettato: colonne <b>Date, Advancing, Declining</b> (separatore virgola)</span>
+        <div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;
+                    padding:32px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">📸</div>
+          <div style="font-family:Syne;font-size:0.9rem;color:#c8d8e8;margin-bottom:8px">
+            Carica lo screenshot A/D Line
+          </div>
+          <div style="font-size:0.62rem;color:#7a9ab0;line-height:1.9">
+            Trascina qui un'immagine oppure usa il pulsante sopra<br>
+            <b style="color:#8ab0c8">Fonti:</b>
+            marketinout.com → Advance/Decline Line &nbsp;|&nbsp;
+            stockcharts.com → $NYAD &nbsp;|&nbsp;
+            barchart.com → NYSE Breadth
+          </div>
         </div>
         """, unsafe_allow_html=True)
 

@@ -551,6 +551,9 @@ skew_last = last(skew_ratio)
 pcr_last  = last(pcr_s)
 ad_last   = last(ad_line)
 
+# PCR attivo: CSV Barchart ha priorità su yfinance
+active_pcr = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
+
 spy_delta  = (spy_last  - prev(spy_s))  if spy_s  is not None and len(spy_s)  > 1 else None
 qqq_delta  = (qqq_last  - prev(qqq_s))  if qqq_s  is not None and len(qqq_s)  > 1 else None
 vix_delta  = (vix_last  - prev(vix_s))  if vix_s  is not None and len(vix_s)  > 1 else None
@@ -596,7 +599,7 @@ def score_margin(m, mp):
 
 total = (score_breadth(s5th, ndth, s5fi, ndfi) +
          score_vix(vix_last) +
-         score_pcr(pcr_last) +
+         score_pcr(active_pcr) +
          score_skew(skew_last) +
          score_oi(sp_oi, sp_oi_prev) +
          score_margin(margin_debt, margin_debt_prev))
@@ -649,9 +652,10 @@ with tab1:
             sp = "BULL" if (skew_last and skew_last < 1.05) else "NEUTRAL"
             st.markdown(tile("VIX3M/VIX Ratio", skew_v, None, "blue", "", sp), unsafe_allow_html=True)
         with c5:
-            pcr_v = f"{pcr_last:.2f}" if pcr_last else "N/A"
-            pp = "BULL" if (pcr_last and 0.7 < pcr_last < 1.0) else ("BEAR" if (pcr_last and pcr_last > 1.1) else "NEUTRAL")
-            st.markdown(tile("Put/Call Ratio", pcr_v, None, "amber", "", pp), unsafe_allow_html=True)
+            pcr_v = f"{active_pcr:.2f}" if active_pcr else "N/A"
+            pp = "BULL" if (active_pcr and 0.7 < active_pcr < 1.0) else ("BEAR" if (active_pcr and active_pcr > 1.1) else "NEUTRAL")
+            pcr_cc = "red" if (active_pcr and active_pcr > 1.1) else ("amber" if active_pcr else "amber")
+            st.markdown(tile("Put/Call Ratio", pcr_v, None, pcr_cc, "", pp), unsafe_allow_html=True)
         with c6:
             oi_delta = sp_oi - sp_oi_prev
             oi_v = f"{sp_oi/1e6:.2f}M"
@@ -836,15 +840,13 @@ with tab3:
     elif pcr_barchart_val:
         st.success(f"✅ CSV caricato · PCR SPX = **{pcr_barchart_val:.4f}** ({st.session_state.get('pcr_csv_name','')})")
 
-    # Determina valore PCR attivo
-    active_pcr   = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
+    # PCR attivo già calcolato globalmente (active_pcr)
     pcr_source   = "Barchart CSV" if pcr_barchart_val else ("yfinance ^CPC" if pcr_last else "N/A")
     pcr_series   = pcr_s  # storico yfinance se disponibile
 
     c3, c4 = st.columns([1, 3])
     with c3:
-        pcr_display = active_pcr if active_pcr else 0.85
-        fig_pcr_g = gauge(pcr_display, f"Put/Call · {pcr_source}", 0.4, 1.8,
+        fig_pcr_g = gauge(active_pcr if active_pcr else 0.85, f"Put/Call · {pcr_source}", 0.4, 1.8,
                            thresholds=[35, 65], unit="x", fmt=".2f", invert=True)
         st.plotly_chart(fig_pcr_g, use_container_width=True, config={"displayModeBar": False})
 

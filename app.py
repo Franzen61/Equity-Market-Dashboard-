@@ -448,12 +448,17 @@ with st.sidebar:
     st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Upload daily CSV da barchart.com<br>→ SPX Options → Put/Call Ratios → Download</div>', unsafe_allow_html=True)
     _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
     if _uploaded is not None:
-        # Leggi subito i bytes e salvali in session_state (sopravvivono ai re-run)
-        st.session_state["pcr_csv_bytes"] = _uploaded.read()
-        st.session_state["pcr_csv_name"]  = _uploaded.name
+        _bytes = _uploaded.getvalue()   # getvalue() è più sicuro di read() su Streamlit
+        if _bytes and len(_bytes) > 10:
+            st.session_state["pcr_csv_bytes"] = _bytes
+            st.session_state["pcr_csv_name"]  = _uploaded.name
     if "pcr_csv_bytes" in st.session_state:
         _fname = st.session_state.get("pcr_csv_name", "file.csv")
         st.markdown(f'<div style="font-size:0.58rem;color:#00f5c4;margin-top:4px;">✅ {_fname}</div>', unsafe_allow_html=True)
+        if st.button("🗑 Rimuovi CSV", use_container_width=True):
+            del st.session_state["pcr_csv_bytes"]
+            del st.session_state["pcr_csv_name"]
+            st.rerun()
 
     st.markdown('<div class="sidebar-section">⚙️ Settings</div>', unsafe_allow_html=True)
     period_opts = ["6mo", "1y", "2y", "5y"]
@@ -504,7 +509,11 @@ if "pcr_csv_bytes" in st.session_state:
             if pcr_barchart_call > 0:
                 pcr_barchart_val = round(pcr_barchart_puts / pcr_barchart_call, 4)
     except Exception as _e:
-        pass  # fallback silenzioso, mostra N/A
+        st.session_state["pcr_parse_error"] = str(_e)
+
+if "pcr_parse_error" in st.session_state:
+    # verrà mostrato nel tab Sentiment, non qui
+    pass
 
 spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
@@ -816,6 +825,16 @@ with tab3:
 
     # Put/Call Ratio — CSV Barchart ha priorità, poi yfinance
     st.markdown('<div class="section-label">Put/Call Ratio SPX — Near-Term Options</div>', unsafe_allow_html=True)
+
+    # Debug stato CSV
+    _csv_loaded = "pcr_csv_bytes" in st.session_state
+    _parse_err  = st.session_state.get("pcr_parse_error", None)
+    if not _csv_loaded:
+        st.info("📂 Carica il CSV Barchart nella sidebar (Browse files) per il P/C Ratio SPX in tempo reale.", icon="📂")
+    elif _parse_err:
+        st.error(f"⚠️ Errore parsing CSV: {_parse_err}")
+    elif pcr_barchart_val:
+        st.success(f"✅ CSV caricato · PCR SPX = **{pcr_barchart_val:.4f}** ({st.session_state.get('pcr_csv_name','')})")
 
     # Determina valore PCR attivo
     active_pcr   = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)

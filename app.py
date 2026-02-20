@@ -509,7 +509,7 @@ with st.sidebar:
         value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
 
     st.markdown('<div class="sidebar-section">📈 A/D Line CSV (opzionale)</div>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Solo se Stooq non disponibile<br>Colonne: Date,Advancing,Declining</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Auto: Stooq.com · Manuale se offline<br>→ macrotrends.net/2119 → Download CSV<br>→ Oppure stooq.com → $NYADV.US → CSV<br>Colonne richieste: Date, Advancing, Declining</div>', unsafe_allow_html=True)
     _ad_uploaded = st.file_uploader("A/D CSV", type="csv", label_visibility="collapsed", key="ad_uploader")
     if _ad_uploaded is not None:
         _ad_bytes = _ad_uploaded.getvalue()
@@ -888,13 +888,19 @@ with tab2:
         """, unsafe_allow_html=True)
     else:
         ad_source = ad_data.get("source", "") if ad_data else ""
-        st.info(
-            "📊 A/D Line non disponibile automaticamente. "
-            "Opzioni:\n"
-            "• Attendi: Stooq.com viene ritentato ad ogni refresh\n"
-            "• Carica CSV manuale nella sidebar (colonne: Date, Advancing, Declining)\n"
-            "• Fonte CSV: wsj.com → Markets → Market Data → NYSE Breadth"
-        )
+        st.markdown("""
+        <div style="background:#0e1420;border:1px solid #1c2a3a;padding:14px;border-radius:4px;font-size:0.65rem;color:#8ab0c8;line-height:2.2">
+          <b style="color:#f5a623;letter-spacing:2px">A/D LINE — DATI NON DISPONIBILI AUTOMATICAMENTE</b><br>
+          Il fetch automatico da Stooq.com è in corso — riprova fra qualche minuto con <b>Refresh Data</b>.<br>
+          <br>
+          <b style="color:#c8d8e8">In alternativa, carica il CSV manualmente dalla sidebar:</b><br>
+          📌 <b>Fonte 1 (consigliata):</b> <a href="https://www.macrotrends.net/2119/nyse-advance-decline-issues-data" target="_blank" style="color:#4da6ff">macrotrends.net → NYSE Advance Decline</a> → Download CSV<br>
+          📌 <b>Fonte 2:</b> <a href="https://stooq.com/q/d/?s=%24nyadv.us" target="_blank" style="color:#4da6ff">stooq.com → $NYADV.US</a> → scarica CSV storico<br>
+          📌 <b>Fonte 3:</b> <a href="https://finance.yahoo.com/quote/%5EADVN/" target="_blank" style="color:#4da6ff">Yahoo Finance → ^ADVN</a> → Historical Data → Download<br>
+          <br>
+          <span style="color:#4a6070">Formato CSV accettato: colonne <b>Date, Advancing, Declining</b> (separatore virgola)</span>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
 #  TAB 3 · SENTIMENT

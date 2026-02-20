@@ -68,7 +68,7 @@ st.markdown("""
     border-right: 1px solid var(--border) !important;
   }
 
-  .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+  .block-container { padding-top: 4.5rem; padding-bottom: 2rem; }
 
   h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
 
@@ -218,12 +218,23 @@ def base_layout(title="", height=320):
         hovermode="x unified",
     )
 
-def gauge(value, title, min_val=0, max_val=100, thresholds=None, unit="", fmt=".1f"):
-    """Plotly gauge with dark theme."""
+def gauge(value, title, min_val=0, max_val=100, thresholds=None, unit="", fmt=".1f", invert=False):
+    """Plotly gauge with dark theme.
+    invert=True  → alto = rosso (danger), basso = verde (safe) — per VIX, PCR
+    invert=False → alto = verde (good),  basso = rosso (bad)  — per breadth, A/D
+    """
     if thresholds is None:
         thresholds = [33, 66]
     pct = (value - min_val) / (max_val - min_val) * 100 if (max_val - min_val) else 50
-    color = CYAN if pct > 60 else (RED if pct < 33 else AMBER)
+
+    if invert:
+        # Valore alto = pericolo (rosso), valore basso = calma (verde)
+        color = RED if pct > 66 else (AMBER if pct > 33 else CYAN)
+        step_colors = ["#0a1a14", "#1a150a", "#1a0a0a"]  # green zone → amber → red
+    else:
+        # Valore alto = buono (verde), valore basso = pericolo (rosso)
+        color = CYAN if pct > 60 else (AMBER if pct > 33 else RED)
+        step_colors = ["#1a0a0a", "#1a150a", "#0a1a14"]  # red zone → amber → green
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -231,16 +242,16 @@ def gauge(value, title, min_val=0, max_val=100, thresholds=None, unit="", fmt=".
         number=dict(suffix=unit, valueformat=fmt, font=dict(family="Syne", size=28, color=color)),
         title=dict(text=title, font=dict(family="Space Mono", size=10, color=TEXT_COL)),
         gauge=dict(
-            axis=dict(range=[min_val, max_val], tickfont=dict(size=8, color="#4a6070"),
+            axis=dict(range=[min_val, max_val], tickfont=dict(size=8, color="#7a9ab0"),
                       tickcolor="#1c2a3a", tickwidth=1),
             bar=dict(color=color, thickness=0.55),
             bgcolor=PLOT_BG,
             borderwidth=0,
             steps=[
-                dict(range=[min_val, min_val + (max_val-min_val)*thresholds[0]/100], color="#0d1a1a"),
+                dict(range=[min_val, min_val + (max_val-min_val)*thresholds[0]/100], color=step_colors[0]),
                 dict(range=[min_val + (max_val-min_val)*thresholds[0]/100,
-                            min_val + (max_val-min_val)*thresholds[1]/100], color="#1a150a"),
-                dict(range=[min_val + (max_val-min_val)*thresholds[1]/100, max_val], color="#0a1a14"),
+                            min_val + (max_val-min_val)*thresholds[1]/100], color=step_colors[1]),
+                dict(range=[min_val + (max_val-min_val)*thresholds[1]/100, max_val], color=step_colors[2]),
             ],
             threshold=dict(line=dict(color="#2a3a4a", width=2), thickness=0.75, value=value),
         )
@@ -486,7 +497,7 @@ composite_label = "BULL" if composite_pct > 60 else ("BEAR" if composite_pct < 3
 # ─────────────────────────────────────────────
 #  LAYOUT — TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📡 Overview", "📊 Breadth", "😰 Sentiment", "🏗️ Structure", "🔬 Backtest"])
+tab1, tab2, tab3, tab4 = st.tabs(["📡 Overview", "📊 Breadth", "😰 Sentiment", "🏗️ Structure"])
 
 # ══════════════════════════════════════════════
 #  TAB 1 · OVERVIEW
@@ -617,7 +628,7 @@ with tab3:
     with c1:
         vix_val = vix_last if vix_last else 20
         fig_vix = gauge(vix_val, "VIX · CBOE Volatility Index", 10, 50,
-                         thresholds=[25, 60], unit="", fmt=".1f")
+                         thresholds=[25, 60], unit="", fmt=".1f", invert=True)
         st.plotly_chart(fig_vix, use_container_width=True, config={"displayModeBar": False})
 
         # VIX history
@@ -636,7 +647,7 @@ with tab3:
     with c2:
         skew_val = skew_last if skew_last else 1.0
         fig_sk = gauge(skew_val, "VIX3M/VIX · Term Structure Ratio", 0.8, 1.4,
-                        thresholds=[30, 70], unit="x", fmt=".3f")
+                        thresholds=[15, 55], unit="x", fmt=".3f", invert=False)
         st.plotly_chart(fig_sk, use_container_width=True, config={"displayModeBar": False})
 
         if skew_ratio is not None:
@@ -654,7 +665,7 @@ with tab3:
     with c3:
         pcr_val = pcr_last if pcr_last else 0.85
         fig_pcr_g = gauge(pcr_val, "Put/Call Ratio", 0.4, 1.5,
-                           thresholds=[40, 70], unit="x", fmt=".2f")
+                           thresholds=[40, 70], unit="x", fmt=".2f", invert=True)
         st.plotly_chart(fig_pcr_g, use_container_width=True, config={"displayModeBar": False})
     with c4:
         if pcr_s is not None:
@@ -795,6 +806,19 @@ with tab4:
                                xaxis2=dict(gridcolor=GRID_COL),
                                yaxis2=dict(gridcolor=GRID_COL))
         st.plotly_chart(fig_ov, use_container_width=True, config={"displayModeBar": False})
+
+# ─────────────────────────────────────────────
+#  FOOTER
+# ─────────────────────────────────────────────
+st.markdown("---")
+st.markdown("""
+<div style="font-family:Space Mono,monospace;font-size:0.58rem;color:#4a6a80;text-align:center;line-height:2">
+  EQUITY PULSE · For informational purposes only · Not financial advice<br>
+  Automated: SPY, QQQ, VIX, VIX3M, Put/Call (yfinance/CBOE) · Manual: Breadth, OI, Margin Debt<br>
+  Deploy: Streamlit Cloud · Source: GitHub
+</div>
+""", unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────
 #  FOOTER

@@ -290,7 +290,7 @@ def tile(label, value, delta=None, color_class="", unit="", pill_label=None):
 @st.cache_data(ttl=14400, show_spinner=False)
 def fetch_price_data(period="1y"):
     """Fetch all market data. Cached 4h to avoid re-fetch on sidebar interactions."""
-    tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^NYADV", "^NYDEC", "^CPC"]
+    tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^CPC"]
     data = {}
     for t in tickers:
         try:
@@ -322,21 +322,85 @@ def get_close(data, ticker):
         close = close.iloc[:, 0]
     return close.squeeze().dropna()
 
-def compute_ad_line(data):
+@st.cache_data(ttl=14400, show_spinner=False)
+def fetch_ad_data(period="1y"):
     """
-    Costruisce A/D Line cumulativa NYSE.
+    Fetch NYSE Advance/Decline data.
+    Prova in ordine:
+    1. yfinance tickers alternativi (^ADVN, ^DECN, ^NYADV, ^NYDEC)
+    2. Stooq.com via requests (fonte gratuita affidabile)
+    Ritorna dict con chiavi 'adv' e 'dec' come pd.Series, oppure vuoto.
+    """
+    result = {}
+
+    # — Tentativo 1: yfinance con ticker alternativi —
+    alt_pairs = [("^ADVN","^DECN"), ("^NYADV","^NYDEC"), ("^ADV","^DEC")]
+    for adv_t, dec_t in alt_pairs:
+        try:
+            adv_df = yf.download(adv_t, period=period, progress=False,
+                                  auto_adjust=True, timeout=10)
+            dec_df = yf.download(dec_t, period=period, progress=False,
+                                  auto_adjust=True, timeout=10)
+            if not adv_df.empty and not dec_df.empty:
+                adv_s = adv_df["Close"].squeeze().dropna()
+                dec_s = dec_df["Close"].squeeze().dropna()
+                if isinstance(adv_s, pd.Series) and len(adv_s) > 20:
+                    result["adv"] = pd.Series(adv_s.values, index=adv_s.index)
+                    result["dec"] = pd.Series(dec_s.values, index=dec_s.index)
+                    result["source"] = adv_t
+                    return result
+        except Exception:
+            pass
+
+    # — Tentativo 2: Stooq via requests —
+    try:
+        import requests, io
+        # Stooq fornisce NYSE advancing/declining issues
+        # $NYADV.US e $NYDEC.US
+        period_map = {"6mo": 180, "1y": 365, "2y": 730, "5y": 1825}
+        days = period_map.get(period, 365)
+        end   = datetime.date.today()
+        start = end - datetime.timedelta(days=days)
+
+        def stooq_fetch(symbol):
+            url = (f"https://stooq.com/q/d/l/?s={symbol}"
+                   f"&d1={start.strftime('%Y%m%d')}"
+                   f"&d2={end.strftime('%Y%m%d')}&i=d")
+            r = requests.get(url, timeout=12,
+                             headers={"User-Agent": "Mozilla/5.0"})
+            df = pd.read_csv(io.StringIO(r.text))
+            df.columns = df.columns.str.strip()
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+            return df["Close"].dropna()
+
+        adv_s = stooq_fetch("%24nyadv.us")
+        dec_s = stooq_fetch("%24nydec.us")
+        if len(adv_s) > 20:
+            result["adv"]    = pd.Series(adv_s.values, index=adv_s.index)
+            result["dec"]    = pd.Series(dec_s.values, index=dec_s.index)
+            result["source"] = "Stooq"
+            return result
+    except Exception:
+        pass
+
+    return result  # vuoto → fallback a upload manuale
+
+
+def compute_ad_line(ad_data):
+    """
+    Costruisce A/D Line cumulativa da dict {adv, dec}.
     Ritorna tuple (ad_line, adv_series, dec_series) oppure (None,None,None).
     """
-    adv = get_close(data, "^NYADV")
-    dec = get_close(data, "^NYDEC")
-    if adv is None or dec is None:
+    if not ad_data or "adv" not in ad_data:
         return None, None, None
+    adv = ad_data["adv"]
+    dec = ad_data["dec"]
     adv_a, dec_a = adv.align(dec, join="inner")
     adv_a = pd.Series(adv_a.values, index=adv_a.index)
     dec_a = pd.Series(dec_a.values, index=dec_a.index)
     diff  = adv_a - dec_a
-    ad_cum = diff.cumsum()
-    return ad_cum, adv_a, dec_a
+    return diff.cumsum(), adv_a, dec_a
 
 def compute_skew_vix(data):
     vix   = get_close(data, "^VIX")
@@ -444,6 +508,22 @@ with st.sidebar:
     margin_debt_prev = st.number_input("Margin Debt prev. month ($M)", min_value=0,
         value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
 
+    st.markdown('<div class="sidebar-section">📈 A/D Line CSV (opzionale)</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Solo se Stooq non disponibile<br>Colonne: Date,Advancing,Declining</div>', unsafe_allow_html=True)
+    _ad_uploaded = st.file_uploader("A/D CSV", type="csv", label_visibility="collapsed", key="ad_uploader")
+    if _ad_uploaded is not None:
+        _ad_bytes = _ad_uploaded.getvalue()
+        if _ad_bytes and len(_ad_bytes) > 10:
+            st.session_state["ad_csv_bytes"] = _ad_bytes
+            st.session_state["ad_csv_name"]  = _ad_uploaded.name
+    if "ad_csv_bytes" in st.session_state:
+        _adfname = st.session_state.get("ad_csv_name", "ad.csv")
+        st.markdown(f'<div style="font-size:0.58rem;color:#00f5c4;margin-top:4px;">✅ {_adfname}</div>', unsafe_allow_html=True)
+        if st.button("🗑 Rimuovi A/D CSV", use_container_width=True):
+            del st.session_state["ad_csv_bytes"]
+            del st.session_state["ad_csv_name"]
+            st.rerun()
+
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown('<div style="font-size:0.58rem;color:#7a9ab0;line-height:1.6;margin-bottom:4px;">Upload daily CSV da barchart.com<br>→ SPX Options → Put/Call Ratios → Download</div>', unsafe_allow_html=True)
     _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
@@ -488,6 +568,31 @@ st.markdown(f'<div class="ts-bar">Last fetch: {now} &nbsp;|&nbsp; Breadth/OI/Mar
 # Dati fetchati con cache 4h — non si ricaricano ad ogni interazione sidebar
 data = fetch_price_data(period)
 
+# Fetch A/D Line (Stooq o yfinance alternativi)
+ad_data = fetch_ad_data(period)
+
+# Fallback: CSV manuale se Stooq non disponibile
+if not ad_data and "ad_csv_bytes" in st.session_state:
+    try:
+        import io as _io2
+        _ad_raw = st.session_state["ad_csv_bytes"].decode("utf-8")
+        _ad_df  = pd.read_csv(_io2.StringIO(_ad_raw))
+        _ad_df.columns = _ad_df.columns.str.strip()
+        # Accetta colonne: Date, Advancing/Adv, Declining/Dec
+        _date_col = next((c for c in _ad_df.columns if "date" in c.lower()), None)
+        _adv_col  = next((c for c in _ad_df.columns if c.lower() in ["advancing","adv","advances"]), None)
+        _dec_col  = next((c for c in _ad_df.columns if c.lower() in ["declining","dec","declines"]), None)
+        if _date_col and _adv_col and _dec_col:
+            _ad_df[_date_col] = pd.to_datetime(_ad_df[_date_col])
+            _ad_df = _ad_df.set_index(_date_col).sort_index()
+            ad_data = {
+                "adv": pd.to_numeric(_ad_df[_adv_col], errors="coerce").dropna(),
+                "dec": pd.to_numeric(_ad_df[_dec_col], errors="coerce").dropna(),
+                "source": "CSV manuale",
+            }
+    except Exception:
+        pass
+
 # ── PCR da CSV Barchart — legge da session_state (bytes persistenti) ──
 pcr_barchart_val  = None
 pcr_barchart_puts = None
@@ -519,7 +624,7 @@ spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
 vix_s  = get_close(data, "^VIX")
 skew_ratio, vix3m_s, vix_s2 = compute_skew_vix(data)
-ad_line, adv_series, dec_series = compute_ad_line(data)
+ad_line, adv_series, dec_series = compute_ad_line(ad_data)
 pcr_s   = compute_pcr(data)
 
 def last(series):
@@ -782,7 +887,14 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.warning("A/D Line: ^NYADV / ^NYDEC non disponibili via yfinance in questo momento.")
+        ad_source = ad_data.get("source", "") if ad_data else ""
+        st.info(
+            "📊 A/D Line non disponibile automaticamente. "
+            "Opzioni:\n"
+            "• Attendi: Stooq.com viene ritentato ad ogni refresh\n"
+            "• Carica CSV manuale nella sidebar (colonne: Date, Advancing, Declining)\n"
+            "• Fonte CSV: wsj.com → Markets → Market Data → NYSE Breadth"
+        )
 
 # ══════════════════════════════════════════════
 #  TAB 3 · SENTIMENT

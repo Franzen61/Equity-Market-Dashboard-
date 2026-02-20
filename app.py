@@ -287,13 +287,15 @@ def tile(label, value, delta=None, color_class="", unit="", pill_label=None):
 # ─────────────────────────────────────────────
 #  DATA FETCHING
 # ─────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=14400, show_spinner=False)
 def fetch_price_data(period="1y"):
+    """Fetch all market data. Cached 4h to avoid re-fetch on sidebar interactions."""
     tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^NYADV", "^NYDEC", "^CPC"]
     data = {}
     for t in tickers:
         try:
-            df = yf.download(t, period=period, progress=False, auto_adjust=True)
+            df = yf.download(t, period=period, progress=False, auto_adjust=True,
+                             timeout=15)
             if not df.empty:
                 data[t] = df
         except Exception:
@@ -355,6 +357,21 @@ def compute_pcr(data):
     cpc = get_close(data, "^CPC")
     return cpc
 
+
+# ─────────────────────────────────────────────
+#  SESSION STATE — valori sidebar persistenti
+#  Evita re-run completo ad ogni modifica input
+# ─────────────────────────────────────────────
+_ss_defaults = {
+    "s5th": 55, "s5fi": 48, "ndth": 52, "ndfi": 44,
+    "sp_oi": 2_850_000, "sp_oi_prev": 2_820_000,
+    "margin_debt": 798_000, "margin_debt_prev": 782_000,
+    "period": "1y",
+}
+for _k, _v in _ss_defaults.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
 # ─────────────────────────────────────────────
 #  SIDEBAR  (manual inputs)
 # ─────────────────────────────────────────────
@@ -363,24 +380,38 @@ with st.sidebar:
     st.markdown('<div style="font-size:0.55rem;letter-spacing:3px;color:#4a6070;text-transform:uppercase;margin-bottom:20px;">Manual Data Input</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sidebar-section">📊 Breadth — S&P 500</div>', unsafe_allow_html=True)
-    s5th = st.slider("S5TH · Stocks > 200MA (%)", 0, 100, 55, help="% S&P500 stocks above 200-day MA (StockCharts)")
-    s5fi = st.slider("S5FI · Stocks > 50MA (%)",  0, 100, 48, help="% S&P500 stocks above 50-day MA")
+    s5th = st.number_input("S5TH · Stocks > 200MA (%)", 0, 100,
+        value=st.session_state["s5th"], key="s5th",
+        help="% S&P500 above 200d MA — StockCharts: $S5TH")
+    s5fi = st.number_input("S5FI · Stocks > 50MA (%)", 0, 100,
+        value=st.session_state["s5fi"], key="s5fi",
+        help="% S&P500 above 50d MA — StockCharts: $S5FI")
 
     st.markdown('<div class="sidebar-section">📊 Breadth — Nasdaq</div>', unsafe_allow_html=True)
-    ndth = st.slider("NDTH · Stocks > 200MA (%)", 0, 100, 52, help="% Nasdaq stocks above 200-day MA")
-    ndfi = st.slider("NDFI · Stocks > 50MA (%)",  0, 100, 44, help="% Nasdaq stocks above 50-day MA")
+    ndth = st.number_input("NDTH · Stocks > 200MA (%)", 0, 100,
+        value=st.session_state["ndth"], key="ndth",
+        help="% Nasdaq above 200d MA — StockCharts: $NDTH")
+    ndfi = st.number_input("NDFI · Stocks > 50MA (%)", 0, 100,
+        value=st.session_state["ndfi"], key="ndfi",
+        help="% Nasdaq above 50d MA — StockCharts: $NDFI")
 
     st.markdown('<div class="sidebar-section">📈 Futures OI</div>', unsafe_allow_html=True)
-    sp_oi = st.number_input("S&P500 Futures OI (contracts)", min_value=0, value=2_850_000, step=10_000,
-                             help="From CME Group website — E-mini S&P 500 total OI")
-    sp_oi_prev = st.number_input("OI prev. week", min_value=0, value=2_820_000, step=10_000)
+    sp_oi = st.number_input("S&P500 Futures OI (contracts)", min_value=0,
+        value=st.session_state["sp_oi"], step=10_000, key="sp_oi",
+        help="From CME Group website — E-mini S&P 500 total OI")
+    sp_oi_prev = st.number_input("OI prev. week", min_value=0,
+        value=st.session_state["sp_oi_prev"], step=10_000, key="sp_oi_prev")
 
     st.markdown('<div class="sidebar-section">💳 Margin Debt (FINRA)</div>', unsafe_allow_html=True)
-    margin_debt = st.number_input("Margin Debt current ($M)", min_value=0, value=798_000, step=1_000)
-    margin_debt_prev = st.number_input("Margin Debt prev. month ($M)", min_value=0, value=782_000, step=1_000)
+    margin_debt = st.number_input("Margin Debt current ($M)", min_value=0,
+        value=st.session_state["margin_debt"], step=1_000, key="margin_debt")
+    margin_debt_prev = st.number_input("Margin Debt prev. month ($M)", min_value=0,
+        value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
 
     st.markdown('<div class="sidebar-section">⚙️ Settings</div>', unsafe_allow_html=True)
-    period = st.selectbox("History window", ["6mo", "1y", "2y", "5y"], index=1)
+    period_opts = ["6mo", "1y", "2y", "5y"]
+    period = st.selectbox("History window", period_opts,
+        index=period_opts.index(st.session_state["period"]), key="period")
 
     refresh = st.button("🔄 Refresh Data", use_container_width=True)
     if refresh:
@@ -402,8 +433,8 @@ st.markdown(f'<div class="ts-bar">Last fetch: {now} &nbsp;|&nbsp; Breadth/OI/Mar
 # ─────────────────────────────────────────────
 #  FETCH
 # ─────────────────────────────────────────────
-with st.spinner("Fetching market data…"):
-    data = fetch_price_data(period)
+# Dati fetchati con cache 4h — non si ricaricano ad ogni interazione sidebar
+data = fetch_price_data(period)
 
 spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
@@ -567,7 +598,7 @@ with tab1:
 # ══════════════════════════════════════════════
 with tab2:
     st.markdown('<div class="section-label">Breadth Gauges — % Stocks Above Moving Averages</div>', unsafe_allow_html=True)
-    st.info("⌨️  Update values weekly via **sidebar sliders** → StockCharts symbols: S5TH, S5FI, NDTH, NDFI", icon="ℹ️")
+    st.info("⌨️  Aggiorna settimanalmente i valori nella sidebar → StockCharts: $S5TH, $S5FI, $NDTH, $NDFI", icon="ℹ️")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:

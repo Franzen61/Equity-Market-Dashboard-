@@ -36,13 +36,31 @@ st.markdown("""
     --accent3:  #f5a623;   /* amber       */
     --accent4:  #4da6ff;   /* blue        */
     --text:     #c8d8e8;
-    --muted:    #4a6070;
+    --muted:    #7a9ab0;
   }
 
-  html, body, [data-testid="stAppViewContainer"] {
+  html, body,
+  [data-testid="stAppViewContainer"],
+  [data-testid="stApp"],
+  [data-testid="stHeader"],
+  header[data-testid="stHeader"],
+  .stApp,
+  .stAppHeader,
+  section[data-testid="stSidebarUserContent"],
+  div[data-testid="stToolbar"],
+  div[data-testid="stDecoration"],
+  div[data-testid="stStatusWidget"] {
     background-color: var(--bg) !important;
     color: var(--text) !important;
     font-family: 'Space Mono', monospace !important;
+  }
+
+  /* Hide Streamlit top decoration bar and toolbar completely */
+  [data-testid="stDecoration"]  { display: none !important; }
+  [data-testid="stToolbar"]     { background: var(--bg) !important; }
+  header[data-testid="stHeader"] {
+    background: var(--bg) !important;
+    border-bottom: 1px solid var(--border) !important;
   }
 
   [data-testid="stSidebar"] {
@@ -654,7 +672,7 @@ with tab3:
 
     # PCR interpretation note
     st.markdown("""
-    <div style="font-size:0.65rem;color:#4a6070;border:1px solid #1c2a3a;padding:10px;border-radius:4px;line-height:1.8">
+    <div style="font-size:0.65rem;color:#8ab0c8;border:1px solid #1c2a3a;padding:10px;border-radius:4px;line-height:1.8">
       <b style="color:#c8d8e8">P/C Ratio Guide:</b>&nbsp;
       P/C &lt; 0.7 → Complacency / Risk &nbsp;|&nbsp;
       0.7–1.0 → Healthy Fear / Opportunity &nbsp;|&nbsp;
@@ -696,14 +714,14 @@ with tab4:
         <div style="background:#0e1420;border:1px solid #1c2a3a;padding:12px;border-radius:4px;font-size:0.7rem;line-height:2">
           WoW Change: <b style="color:{'#00f5c4' if oi_chg>0 else '#ff4d6d'}">{oi_chg:+,} contracts ({oi_chg_pct:+.1f}%)</b><br>
           Signal: {signal_pill(oi_pill)}<br>
-          <span style="color:#4a6070">Rising OI + rising price = strong trend<br>
+          <span style="color:#8ab0c8">Rising OI + rising price = strong trend<br>
           Rising OI + falling price = distribution</span>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown('<div class="section-label" style="margin-top:20px">COT Data Source</div>', unsafe_allow_html=True)
         st.markdown("""
-        <div style="font-size:0.62rem;color:#4a6070;line-height:1.9">
+        <div style="font-size:0.62rem;color:#8ab0c8;line-height:1.9">
           → CFTC publishes COT every Friday ~15:30 ET<br>
           → URL: cftc.gov → Market Reports → Commitments of Traders<br>
           → Filter: "E-Mini S&P 500 Stock Index" (code 13874A)<br>
@@ -737,14 +755,14 @@ with tab4:
         <div style="background:#0e1420;border:1px solid #1c2a3a;padding:12px;border-radius:4px;font-size:0.7rem;line-height:2">
           MoM Change: <b style="color:{'#00f5c4' if md_chg>0 else '#ff4d6d'}">${md_chg:+,}M ({md_chg_pct:+.1f}%)</b><br>
           Signal: {signal_pill(md_pill)}<br>
-          <span style="color:#4a6070">Rising margin → leveraged risk-on<br>
+          <span style="color:#8ab0c8">Rising margin → leveraged risk-on<br>
           Rapid margin collapse → forced selling risk</span>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown('<div class="section-label" style="margin-top:20px">Data Source</div>', unsafe_allow_html=True)
         st.markdown("""
-        <div style="font-size:0.62rem;color:#4a6070;line-height:1.9">
+        <div style="font-size:0.62rem;color:#8ab0c8;line-height:1.9">
           → finra.org → Investors → Margin Statistics<br>
           → Published monthly, ~3-4 week lag<br>
           → Historical CSV available for download<br>
@@ -783,7 +801,7 @@ with tab4:
 # ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="font-family:Space Mono,monospace;font-size:0.58rem;color:#2a3a4a;text-align:center;line-height:2">
+<div style="font-family:Space Mono,monospace;font-size:0.58rem;color:#4a6a80;text-align:center;line-height:2">
   EQUITY PULSE · For informational purposes only · Not financial advice<br>
   Automated: SPY, QQQ, VIX, VIX3M, Put/Call (yfinance/CBOE) · Manual: Breadth, OI, Margin Debt<br>
   Deploy: Streamlit Cloud · Source: GitHub
@@ -1066,7 +1084,11 @@ with tab5:
                 name=name.split("(")[0].strip(),
                 box_visible=True,
                 meanline_visible=True,
-                fillcolor=color + "99" if not color.startswith("rgba") else color,
+                fillcolor=(
+                    "rgba({},{},{},0.4)".format(
+                        int(color[1:3],16), int(color[3:5],16), int(color[5:7],16)
+                    ) if color.startswith("#") else color
+                ),
                 line_color=color,
                 opacity=0.7,
             ))
@@ -1111,12 +1133,12 @@ with tab5:
         #  METHODOLOGY NOTE
         # ─────────────────────────────
         st.markdown("""
-        <div style="font-size:0.62rem;color:#4a6070;border:1px solid #1c2a3a;padding:14px;border-radius:4px;line-height:2;margin-top:12px">
+        <div style="font-size:0.62rem;color:#8ab0c8;border:1px solid #1c2a3a;padding:14px;border-radius:4px;line-height:2;margin-top:12px">
           <b style="color:#c8d8e8;letter-spacing:2px">METODOLOGIA</b><br>
           <b>VIX Reversion:</b> VIX supera 25 negli ultimi 5 giorni, poi chiude sotto la sua media mobile 5d → esaurimento del panic selling<br>
           <b>VIX3M/VIX Normalize:</b> Ratio scende sotto 1.0 (curva invertita = stress acuto), poi risale sopra 1.0 → normalizzazione del term structure<br>
           <b>P/C Reversion:</b> Put/Call ratio > 1.15 per ≥3 giorni consecutivi (capitolazione opzionistica), poi scende sotto 1.0<br>
           <b>Forward return:</b> Variazione % SPY a 10 giorni lavorativi dall'entry · Shading verde = trade positivo, rosso = negativo<br>
-          <span style="color:#2a3a4a">⚠️ Backtest su dati storici. Past performance non garantisce risultati futuri. Solo per analisi.</span>
+          <span style="color:#7a9ab0">⚠️ Backtest su dati storici. Past performance non garantisce risultati futuri. Solo per analisi.</span>
         </div>
         """, unsafe_allow_html=True)

@@ -286,15 +286,20 @@ def get_close(data, ticker):
     if df is None or df.empty:
         return None
     close = df["Close"] if "Close" in df.columns else df.iloc[:, 0]
-    return close.dropna()
+    # yfinance can return a DataFrame with multi-level columns → squeeze to Series
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+    return close.squeeze().dropna()
 
 def compute_ad_line(data):
     adv = get_close(data, "^NYADV")
     dec = get_close(data, "^NYDEC")
     if adv is None or dec is None:
         return None
-    combined = adv.align(dec, join="inner")
-    diff = combined[0] - combined[1]
+    adv_a, dec_a = adv.align(dec, join="inner")
+    adv_a = pd.Series(adv_a.values, index=adv_a.index)
+    dec_a = pd.Series(dec_a.values, index=dec_a.index)
+    diff = adv_a - dec_a
     return diff.cumsum()
 
 def compute_skew_vix(data):
@@ -302,9 +307,20 @@ def compute_skew_vix(data):
     vix3m = get_close(data, "^VIX3M")
     if vix is None or vix3m is None:
         return None, None, None
-    combined = vix3m.align(vix, join="inner")
-    ratio = combined[0] / combined[1]
-    return ratio, combined[0], combined[1]
+    vix3m_aligned, vix_aligned = vix3m.align(vix, join="inner")
+    # Ensure both are 1-D Series (yfinance sometimes returns DataFrame)
+    if hasattr(vix3m_aligned, "squeeze"):
+        vix3m_aligned = vix3m_aligned.squeeze()
+    if hasattr(vix_aligned, "squeeze"):
+        vix_aligned = vix_aligned.squeeze()
+    # Final guard: if still not a plain Series, bail out
+    if not isinstance(vix3m_aligned, pd.Series) or not isinstance(vix_aligned, pd.Series):
+        return None, None, None
+    # Drop any remaining multi-index columns
+    vix3m_aligned = pd.Series(vix3m_aligned.values, index=vix3m_aligned.index)
+    vix_aligned   = pd.Series(vix_aligned.values,   index=vix_aligned.index)
+    ratio = vix3m_aligned / vix_aligned
+    return ratio, vix3m_aligned, vix_aligned
 
 def compute_pcr(data):
     cpc = get_close(data, "^CPC")
@@ -368,10 +384,26 @@ ad_line = compute_ad_line(data)
 pcr_s   = compute_pcr(data)
 
 def last(series):
-    return float(series.iloc[-1]) if series is not None and len(series) > 0 else None
+    if series is None or len(series) == 0:
+        return None
+    try:
+        val = series.iloc[-1]
+        if isinstance(val, pd.Series):
+            val = val.iloc[0]
+        return float(val)
+    except Exception:
+        return None
 
 def prev(series, n=1):
-    return float(series.iloc[-(n+1)]) if series is not None and len(series) > n else None
+    if series is None or len(series) <= n:
+        return None
+    try:
+        val = series.iloc[-(n+1)]
+        if isinstance(val, pd.Series):
+            val = val.iloc[0]
+        return float(val)
+    except Exception:
+        return None
 
 spy_last  = last(spy_s)
 qqq_last  = last(qqq_s)

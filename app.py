@@ -330,6 +330,19 @@ def compute_skew_vix(data):
 def compute_pcr(data):
     return get_close(data, "^CPC")
 
+@st.cache_data(ttl=14400, show_spinner=False)
+def fetch_hyg_lqd_long():
+    """Fetch HYG e LQD su 5 anni per storico grafico completo."""
+    result = {}
+    for t in ["HYG", "LQD"]:
+        try:
+            df = yf.download(t, period="5y", progress=False, auto_adjust=True, timeout=15)
+            if not df.empty:
+                result[t] = df
+        except Exception:
+            pass
+    return result
+
 def compute_hyg_lqd(data):
     hyg = get_close(data, "HYG")
     lqd = get_close(data, "LQD")
@@ -369,9 +382,11 @@ with st.sidebar:
     # ── Breadth S&P ──────────────────────────
     st.markdown('<div class="sidebar-section">📊 Breadth — S&P 500</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://stockcharts.com/h-sc/ui?s=%24S5TH" target="_blank">StockCharts.com</a>'
-        ' → simboli <b>$S5TH</b> e <b>$S5FI</b></div>',
+        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:2.1;margin-bottom:6px;">'
+        '<a href="https://www.barchart.com/stocks/quotes/$S5TH/overview" target="_blank" style="color:#00f5c4;font-weight:700;">→ $S5TH</a>'
+        ' · % S&amp;P500 sopra 200MA<br>'
+        '<a href="https://www.barchart.com/stocks/quotes/$S5FI/overview" target="_blank" style="color:#00f5c4;font-weight:700;">→ $S5FI</a>'
+        ' · % S&amp;P500 sopra 50MA</div>',
         unsafe_allow_html=True)
     s5th = st.number_input("S5TH · % S&P500 sopra 200MA", 0, 100,
         value=st.session_state["s5th"], key="s5th")
@@ -381,9 +396,11 @@ with st.sidebar:
     # ── Breadth Nasdaq ────────────────────────
     st.markdown('<div class="sidebar-section">📊 Breadth — Nasdaq</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://stockcharts.com/h-sc/ui?s=%24NDTH" target="_blank">StockCharts.com</a>'
-        ' → simboli <b>$NDTH</b> e <b>$NDFI</b></div>',
+        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:2.1;margin-bottom:6px;">'
+        '<a href="https://www.barchart.com/stocks/quotes/$NDTH/overview" target="_blank" style="color:#00f5c4;font-weight:700;">→ $NDTH</a>'
+        ' · % Nasdaq sopra 200MA<br>'
+        '<a href="https://www.barchart.com/stocks/quotes/$NDFI/overview" target="_blank" style="color:#00f5c4;font-weight:700;">→ $NDFI</a>'
+        ' · % Nasdaq sopra 50MA</div>',
         unsafe_allow_html=True)
     ndth = st.number_input("NDTH · % Nasdaq sopra 200MA", 0, 100,
         value=st.session_state["ndth"], key="ndth")
@@ -473,8 +490,10 @@ st.markdown(
 # ─────────────────────────────────────────────
 #  FETCH & COMPUTE
 # ─────────────────────────────────────────────
-data       = fetch_price_data(period)
-hyg_lqd    = compute_hyg_lqd(data)
+data          = fetch_price_data(period)
+hyg_lqd       = compute_hyg_lqd(data)
+data_hyg_long = fetch_hyg_lqd_long()
+hyg_lqd_long  = compute_hyg_lqd(data_hyg_long)  # 5y per grafico
 
 # ── PCR da CSV Barchart ──
 pcr_barchart_val  = None
@@ -571,13 +590,13 @@ def score_margin(m, mp):
     return 1 if m > mp else 0
 
 def score_hyg_lqd(ratio):
-    """HYG/LQD price ratio — range reale ~0.72-0.74.
-    > 0.735 = risk-on (HY reggono)
-    0.720-0.735 = neutrale
-    < 0.720 = stress creditizio"""
+    """HYG/LQD price ratio — range storico 0.60-1.02.
+    > 0.80 = risk-on (spread compressi)
+    0.70-0.80 = neutrale (zona normale attuale)
+    < 0.70 = stress / risk-off (area COVID-like)"""
     if ratio is None: return 0
-    if ratio > 0.735: return 1
-    if ratio > 0.720: return 0.5
+    if ratio > 0.80: return 1
+    if ratio > 0.70: return 0.5
     return 0
 
 total = (score_breadth(s5th, ndth, s5fi, ndfi) +
@@ -648,8 +667,8 @@ with tab1:
         with c7:
             if hyg_lqd_last:
                 hl_v = f"{hyg_lqd_last:.4f}"
-                hl_p = "BULL" if hyg_lqd_last > 0.735 else ("BEAR" if hyg_lqd_last < 0.720 else "NEUTRAL")
-                hl_c = "blue" if hyg_lqd_last > 0.735 else ("red" if hyg_lqd_last < 0.720 else "amber")
+                hl_p = "BULL" if hyg_lqd_last > 0.80 else ("BEAR" if hyg_lqd_last < 0.70 else "NEUTRAL")
+                hl_c = "blue" if hyg_lqd_last > 0.80 else ("red" if hyg_lqd_last < 0.70 else "amber")
             else:
                 hl_v, hl_p, hl_c = "N/A", "NEUTRAL", "amber"
             st.markdown(tile("HYG/LQD · Credit", hl_v, None, hl_c, "", hl_p), unsafe_allow_html=True)
@@ -971,15 +990,15 @@ with tab3:
         # Range 0.80-0.94, invert=False (alto=verde=risk-on)
         # 0.88 = (0.88-0.80)/(0.94-0.80)*100 = 57% → threshold[1]=57
         # 0.84 = (0.84-0.80)/(0.94-0.80)*100 = 29% → threshold[0]=29
-        fig_hl_g = gauge(hl_val, "HYG/LQD · Credit Ratio", 0.680, 0.760,
-                          thresholds=[50, 69], unit="x", fmt=".4f", invert=False)
+        fig_hl_g = gauge(hl_val, "HYG/LQD · Credit Ratio", 0.60, 1.02,
+                          thresholds=[24, 48], unit="x", fmt=".4f", invert=False)
         st.plotly_chart(fig_hl_g, use_container_width=True, config={"displayModeBar": False})
 
         if hyg_lqd_last:
-            if hyg_lqd_last > 0.735:
+            if hyg_lqd_last > 0.80:
                 hl_label, hl_msg, hl_col = "🟢 RISK-ON",  "Spread compressi · HY reggono · no stress sistemico", CYAN
-            elif hyg_lqd_last > 0.720:
-                hl_label, hl_msg, hl_col = "🟡 NEUTRALE", "Spread in allargamento moderato · monitorare il trend", AMBER
+            elif hyg_lqd_last > 0.70:
+                hl_label, hl_msg, hl_col = "🟡 NEUTRALE", "Zona normale · HY stabile · monitorare trend", AMBER
             else:
                 hl_label, hl_msg, hl_col = "🔴 RISK-OFF", "Spread ampi · stress HY in corso · possibile recessione pricing", RED
             st.markdown(f"""
@@ -987,7 +1006,7 @@ with tab3:
                         border-radius:4px;font-size:0.63rem;line-height:1.9">
               <b style="color:{hl_col}">{hl_label}</b><br>
               <span style="color:#8ab0c8">{hl_msg}</span><br><br>
-              <span style="color:#4a6070">Range reale: ~0.68 stress → ~0.76 euforia<br>
+              <span style="color:#4a6070">Range storico: ~0.60 crisi → ~1.02 picco (attuale ~0.73 = neutrale)<br>
               HYG = iShares HY Corp · LQD = iShares IG Corp<br>
               Ratio ↓ = spread si allarga = risk-off</span>
             </div>""", unsafe_allow_html=True)
@@ -995,23 +1014,25 @@ with tab3:
             st.info("HYG/LQD: dati non disponibili.")
 
     with c_hyg2:
-        if hyg_lqd is not None and len(hyg_lqd) > 5:
-            hl_ma20 = hyg_lqd.rolling(20).mean()
+        _hl_data = hyg_lqd_long if (hyg_lqd_long is not None and len(hyg_lqd_long) > 5) else hyg_lqd
+        if _hl_data is not None and len(_hl_data) > 5:
+            hl_ma20 = _hl_data.rolling(20).mean()
             fig_hl  = go.Figure()
             fig_hl.add_trace(go.Scatter(
-                x=hyg_lqd.index, y=hyg_lqd.values, name="HYG/LQD",
+                x=_hl_data.index, y=_hl_data.values, name="HYG/LQD",
                 line=dict(color=CYAN, width=1.5),
                 fill="tozeroy", fillcolor="rgba(0,245,196,0.05)"))
             fig_hl.add_trace(go.Scatter(
                 x=hl_ma20.index, y=hl_ma20.values, name="MA20",
                 line=dict(color=AMBER, width=1.2, dash="dot")))
-            fig_hl.add_hline(y=0.735, line_dash="dot", line_color=CYAN, line_width=1,
-                annotation_text="0.735 Risk-On", annotation_position="right",
+            fig_hl.add_hline(y=0.80, line_dash="dot", line_color=CYAN, line_width=1,
+                annotation_text="0.80 Risk-On", annotation_position="right",
                 annotation_font=dict(color=CYAN, size=8))
-            fig_hl.add_hline(y=0.720, line_dash="dot", line_color=RED, line_width=1,
-                annotation_text="0.720 Stress", annotation_position="right",
+            fig_hl.add_hline(y=0.70, line_dash="dot", line_color=RED, line_width=1,
+                annotation_text="0.70 Stress", annotation_position="right",
                 annotation_font=dict(color=RED, size=8))
             fig_hl.update_layout(**base_layout("HYG/LQD Ratio History", 300))
+            fig_hl.update_yaxes(range=[0.55, 1.05])
             st.plotly_chart(fig_hl, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("HYG/LQD: dati non disponibili — verifica connessione.")

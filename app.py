@@ -888,6 +888,76 @@ with tab3:
             fig_skh.update_layout(**base_layout("VIX3M/VIX Ratio History", 260))
             st.plotly_chart(fig_skh, use_container_width=True, config={"displayModeBar": False})
 
+    # ── VIX / VIX3M interpretazione combinata ──
+    # Determina scenario dinamico
+    _vix_zone  = "low" if vix_last and vix_last < 15 else ("mid" if vix_last and vix_last < 25 else "high")
+    _skew_zone = "cont" if skew_last and skew_last >= 1.00 else "back"
+
+    _scenario_map = {
+        ("low",  "cont"): ("⚠️ EUFORIA",         "VIX basso e curva piatta: nessuno compra protezione. Compiacenza massima, tipicamente precede correzioni.", AMBER),
+        ("mid",  "cont"): ("🟡 NERVOSISMO",       "VIX in tensione ma struttura normale: paura temporanea, mercato non prevede crisi prolungata.", AMBER),
+        ("high", "cont"): ("🟡 PAURA / FONDO?",   "VIX alto ma contango intatto: la volatilità è considerata passeggera. Spesso segnale contrarian bullish.", AMBER),
+        ("low",  "back"): ("🔴 ANOMALIA",          "VIX basso con inversione: raro, monitorare con attenzione.", RED),
+        ("mid",  "back"): ("🔴 STRESS",            "VIX in tensione e curva invertita: il mercato teme più il presente che il futuro. Pressione in aumento.", RED),
+        ("high", "back"): ("🔴🔴 CRISI ACUTA",     "VIX alto e backwardation: paura immediata dominante. Scenario di capitolazione o crollo in corso.", RED),
+    }
+    _key = (_vix_zone, _skew_zone)
+    _sc_label, _sc_text, _sc_col = _scenario_map.get(_key, ("N/D", "Dati insufficienti", AMBER))
+
+    st.markdown(f"""
+    <div style="background:#0a0f18;border:1px solid #1c2a3a;border-radius:4px;
+                padding:14px 18px;margin-top:4px;margin-bottom:4px">
+      <div style="font-size:0.58rem;letter-spacing:3px;color:#4a6070;margin-bottom:10px;
+                  text-transform:uppercase">VIX · VIX3M/VIX · Scenario Combinato</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <!-- Scenario attivo -->
+        <div style="flex:1;min-width:180px">
+          <div style="font-size:0.72rem;font-weight:700;color:{_sc_col};margin-bottom:4px">{_sc_label}</div>
+          <div style="font-size:0.63rem;color:#8ab0c8;line-height:1.7">{_sc_text}</div>
+        </div>
+        <!-- Guida compatta -->
+        <div style="flex:2;min-width:280px">
+          <table style="width:100%;border-collapse:collapse;font-size:0.58rem">
+            <tr style="color:#4a6070;letter-spacing:1px">
+              <td style="padding:2px 8px">VIX</td>
+              <td style="padding:2px 8px">VIX3M/VIX</td>
+              <td style="padding:2px 8px">SCENARIO</td>
+            </tr>
+            <tr style="background:{'#0e1a10' if _key==('low','cont') else 'transparent'};border-radius:2px">
+              <td style="padding:3px 8px;color:#7a9ab0">&lt; 15</td>
+              <td style="padding:3px 8px;color:#7a9ab0">&gt; 1.00</td>
+              <td style="padding:3px 8px;color:#f5a623">⚠️ Euforia — rischio complacenza</td>
+            </tr>
+            <tr style="background:{'#0e1a10' if _key==('mid','cont') else 'transparent'}">
+              <td style="padding:3px 8px;color:#7a9ab0">15–25</td>
+              <td style="padding:3px 8px;color:#7a9ab0">&gt; 1.00</td>
+              <td style="padding:3px 8px;color:#f5a623">🟡 Nervosismo temporaneo</td>
+            </tr>
+            <tr style="background:{'#0e1a10' if _key==('high','cont') else 'transparent'}">
+              <td style="padding:3px 8px;color:#7a9ab0">&gt; 25</td>
+              <td style="padding:3px 8px;color:#7a9ab0">&gt; 1.00</td>
+              <td style="padding:3px 8px;color:#f5a623">🟡 Paura passeggera — watch contrarian</td>
+            </tr>
+            <tr style="background:{'#1a0a0a' if _key==('mid','back') else 'transparent'}">
+              <td style="padding:3px 8px;color:#7a9ab0">15–25</td>
+              <td style="padding:3px 8px;color:#7a9ab0">&lt; 1.00</td>
+              <td style="padding:3px 8px;color:#ff4d6d">🔴 Stress — pressione in aumento</td>
+            </tr>
+            <tr style="background:{'#1a0a0a' if _key==('high','back') else 'transparent'}">
+              <td style="padding:3px 8px;color:#7a9ab0">&gt; 25</td>
+              <td style="padding:3px 8px;color:#7a9ab0">&lt; 1.00</td>
+              <td style="padding:3px 8px;color:#ff4d6d">🔴🔴 Crisi acuta — capitolazione</td>
+            </tr>
+          </table>
+          <div style="font-size:0.55rem;color:#4a6070;margin-top:6px;line-height:1.6">
+            VIX3M/VIX &gt; 1 = contango (normale) · &lt; 1 = backwardation (stress acuto)<br>
+            Riga evidenziata = scenario corrente
+          </div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── Put/Call Ratio ──
     st.markdown('<div class="section-label">Put/Call Ratio SPX — Near-Term Options</div>',
                 unsafe_allow_html=True)

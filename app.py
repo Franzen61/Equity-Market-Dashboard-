@@ -615,9 +615,11 @@ def _slice_to_period(series, period_str):
     if series is None or period_str in ("2y", "5y"):
         return series
     try:
-        cutoff = pd.Timestamp.now(tz="UTC") - pd.tseries.frequencies.to_offset(period_str)
-        if series.index.tz is None:
-            cutoff = cutoff.tz_localize(None)
+        days_map = {"6mo": 183, "1y": 365}
+        days = days_map.get(period_str, 365)
+        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+        if series.index.tz is not None:
+            cutoff = cutoff.tz_localize("UTC")
         sliced = series[series.index >= cutoff]
         return sliced if not sliced.empty else series
     except Exception:

@@ -617,11 +617,10 @@ def _slice_to_period(series, period_str):
     try:
         days_map = {"6mo": 183, "1y": 365}
         days = days_map.get(period_str, 365)
-        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
         if series.index.tz is None:
-            cutoff = cutoff.tz_localize(None)
-        else:
-            cutoff = cutoff.tz_localize("UTC")
+            idx = series.index.tz_localize("UTC")
+            series = pd.Series(series.values, index=idx)
         sliced = series[series.index >= cutoff]
         return sliced if not sliced.empty else series
     except Exception:

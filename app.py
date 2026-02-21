@@ -612,7 +612,7 @@ spy_vix_norm_2y, spy_vix_z_2y, spy_vix_raw_2y = compute_spy_vix_ratio(spy_2y, vi
 
 # Slice to display period for charts
 def _slice_to_period(series, period_str):
-   if series is None or period_str in ("2y", "5y"):
+    if series is None or period_str in ("2y", "5y"):
         return series
     try:
         cutoff = pd.Timestamp.now(tz="UTC") - pd.tseries.frequencies.to_offset(period_str)

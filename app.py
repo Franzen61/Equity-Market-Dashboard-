@@ -293,7 +293,7 @@ def tile(label, value, delta=None, color_class="", unit="", pill_label=None):
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=14400, show_spinner=False)
 def fetch_price_data(period="1y"):
-    tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^CPC", "HYG", "LQD"]
+    tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^CPC", "HYG", "LQD", "^TNX", "^IRX"]
     data = {}
     for t in tickers:
         try:
@@ -518,6 +518,8 @@ if "pcr_csv_bytes" in st.session_state:
     except Exception as _e:
         st.session_state["pcr_parse_error"] = str(_e)
 
+tnx_s  = get_close(data, "^TNX")   # 10Y yield
+irx_s  = get_close(data, "^IRX")   # 3M yield (proxy 2Y)
 spy_s  = get_close(data, "SPY")
 qqq_s  = get_close(data, "QQQ")
 vix_s  = get_close(data, "^VIX")
@@ -546,6 +548,11 @@ vix_last      = last(vix_s)
 skew_last     = last(skew_ratio)
 pcr_last      = last(pcr_s)
 hyg_lqd_last  = last(hyg_lqd)
+tnx_last      = last(tnx_s)    # 10Y yield %
+irx_last      = last(irx_s)    # 3M yield %
+# Spread 2Y-10Y: usiamo IRX come proxy breve termine
+# ^IRX = 13-week T-bill; differenza positiva = curva normale
+spread_2y10y  = (tnx_last - irx_last) if (tnx_last and irx_last) else None
 
 # PCR attivo: CSV ha priorità su yfinance
 active_pcr = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
@@ -557,7 +564,7 @@ vix_delta = (vix_last - prev(vix_s)) if vix_s is not None and len(vix_s) > 1 els
 # ─────────────────────────────────────────────
 #  COMPOSITE SIGNAL
 # ─────────────────────────────────────────────
-max_score = 8
+max_score = 9
 
 def score_breadth(s5, nd, s5f, ndf):
     pts = 0
@@ -589,6 +596,16 @@ def score_oi(oi, prev_oi):
 def score_margin(m, mp):
     return 1 if m > mp else 0
 
+def score_10y(y):
+    """10Y Treasury yield — misura costo del capitale.
+    < 3.5% = accomodante → valutazioni supportate
+    3.5-4.5% = neutrale → mercato regge
+    > 4.5% = restrittivo → multipli sotto pressione"""
+    if y is None: return 0
+    if y < 3.5:  return 1
+    if y < 4.5:  return 0.5
+    return 0
+
 def score_hyg_lqd(ratio):
     """HYG/LQD price ratio — range storico 0.60-1.02.
     > 0.80 = risk-on (spread compressi)
@@ -605,7 +622,8 @@ total = (score_breadth(s5th, ndth, s5fi, ndfi) +
          score_skew(skew_last) +
          score_oi(sp_oi, sp_oi_prev) +
          score_margin(margin_debt, margin_debt_prev) +
-         score_hyg_lqd(hyg_lqd_last))
+         score_hyg_lqd(hyg_lqd_last) +
+         score_10y(tnx_last))
 
 composite_pct   = (total / max_score) * 100
 composite_label = "BULL" if composite_pct > 60 else ("BEAR" if composite_pct < 38 else "NEUTRAL")
@@ -648,7 +666,7 @@ with tab1:
 
         st.markdown('<div class="section-label" style="margin-top:20px">Quick Indicators</div>',
                     unsafe_allow_html=True)
-        c4, c5, c6, c7 = st.columns(4)
+        c4, c5, c6, c7, c8 = st.columns(5)
         with c4:
             skew_v = f"{skew_last:.3f}" if skew_last else "N/A"
             sp_s   = "BULL" if (skew_last and skew_last < 1.05) else "NEUTRAL"
@@ -672,6 +690,14 @@ with tab1:
             else:
                 hl_v, hl_p, hl_c = "N/A", "NEUTRAL", "amber"
             st.markdown(tile("HYG/LQD · Credit", hl_v, None, hl_c, "", hl_p), unsafe_allow_html=True)
+        with c8:
+            if tnx_last:
+                tnx_v  = f"{tnx_last:.2f}%"
+                tnx_p  = "BULL" if tnx_last < 3.5 else ("BEAR" if tnx_last > 4.5 else "NEUTRAL")
+                tnx_cc = "blue" if tnx_last < 3.5 else ("red" if tnx_last > 4.5 else "amber")
+            else:
+                tnx_v, tnx_p, tnx_cc = "N/A", "NEUTRAL", "amber"
+            st.markdown(tile("10Y Treasury", tnx_v, None, tnx_cc, "", tnx_p), unsafe_allow_html=True)
 
     st.markdown('<div class="section-label">Price History</div>', unsafe_allow_html=True)
     if spy_s is not None and qqq_s is not None:
@@ -1210,6 +1236,72 @@ with tab4:
           Rapid margin collapse → forced selling risk</span>
         </div>
         """, unsafe_allow_html=True)
+
+    # ── 10Y Treasury + Spread 2Y-10Y ──
+    st.markdown('<div class="section-label">Tassi &amp; Curva — Contesto Macro</div>', unsafe_allow_html=True)
+    c_r1, c_r2, c_r3 = st.columns([1, 1, 2])
+
+    with c_r1:
+        tnx_val = tnx_last if tnx_last else 4.3
+        fig_tnx = gauge(tnx_val, "10Y Treasury Yield", 1.0, 6.0,
+                        thresholds=[42, 58], unit="%", fmt=".2f", invert=True)
+        st.plotly_chart(fig_tnx, use_container_width=True, config={"displayModeBar": False})
+        if tnx_last:
+            if tnx_last < 3.5:
+                _tnx_l, _tnx_c = "ACCOMODANTE — costo capitale basso, valutazioni supportate", CYAN
+            elif tnx_last < 4.5:
+                _tnx_l, _tnx_c = "NEUTRALE — mercato regge, pressione moderata", AMBER
+            else:
+                _tnx_l, _tnx_c = "RESTRITTIVO — costo capitale alto, multipli sotto pressione", RED
+            st.markdown(
+                f'<div style="background:#0e1420;border:1px solid #1c2a3a;padding:10px;'
+                f'border-radius:4px;font-size:0.62rem;line-height:1.8">'
+                f'<b style="color:{_tnx_c}">{_tnx_l}</b><br>'
+                f'<span style="color:#4a6070">Soglie: &lt;3.5% bull · 3.5–4.5% neutrale · &gt;4.5% bear</span>'
+                f'</div>',
+                unsafe_allow_html=True)
+
+    with c_r2:
+        _sp_val = spread_2y10y if spread_2y10y is not None else 0.0
+        fig_sp = gauge(_sp_val, "Spread 10Y-3M · Curva", -2.0, 3.0,
+                       thresholds=[40, 60], unit="%", fmt="+.2f", invert=False)
+        st.plotly_chart(fig_sp, use_container_width=True, config={"displayModeBar": False})
+        if spread_2y10y is not None:
+            if spread_2y10y > 0.5:
+                _sp_l, _sp_c = "NORMALE — curva positiva, nessun segnale recessivo", CYAN
+            elif spread_2y10y > 0:
+                _sp_l, _sp_c = "PIATTA — curva compressa, monitorare", AMBER
+            else:
+                _sp_l, _sp_c = "INVERTITA — storicamente precede recessione (lag 6-18m)", RED
+            st.markdown(
+                f'<div style="background:#0e1420;border:1px solid #1c2a3a;padding:10px;'
+                f'border-radius:4px;font-size:0.62rem;line-height:1.8">'
+                f'<b style="color:{_sp_c}">{_sp_l}</b><br>'
+                f'<span style="color:#4a6070">Indicatore lento · non nel composite score<br>'
+                f'Segnala contesto recessivo a 6-18 mesi</span>'
+                f'</div>',
+                unsafe_allow_html=True)
+
+    with c_r3:
+        if tnx_s is not None:
+            fig_rates = go.Figure()
+            fig_rates.add_trace(go.Scatter(
+                x=tnx_s.index, y=tnx_s.values, name="10Y Yield",
+                line=dict(color=AMBER, width=1.5)))
+            if irx_s is not None:
+                fig_rates.add_trace(go.Scatter(
+                    x=irx_s.index, y=irx_s.values, name="3M Yield",
+                    line=dict(color=BLUE, width=1.2, dash="dot")))
+            fig_rates.add_hline(y=4.5, line_dash="dot", line_color=RED, line_width=1,
+                annotation_text="4.5%", annotation_position="right",
+                annotation_font=dict(color=RED, size=8))
+            fig_rates.add_hline(y=3.5, line_dash="dot", line_color=CYAN, line_width=1,
+                annotation_text="3.5%", annotation_position="right",
+                annotation_font=dict(color=CYAN, size=8))
+            fig_rates.update_layout(**base_layout("10Y e 3M Treasury Yield History", 300))
+            st.plotly_chart(fig_rates, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.info("Dati Treasury non disponibili.")
 
     # ── SPY vs VIX overlay ──
     st.markdown('<div class="section-label">SPY vs VIX Overlay</div>', unsafe_allow_html=True)

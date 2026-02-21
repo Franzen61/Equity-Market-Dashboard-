@@ -367,7 +367,7 @@ def fetch_price_data(period="1y"):
     data_2y      = {}
     for t in tickers:
         try:
-            df_2y = yf.download(t, period="2y", progress=False, auto_adjust=True, timeout=15)
+            df_2y = yf.download(t, period="730d", progress=False, auto_adjust=True, timeout=15)
             if not df_2y.empty:
                 data_2y[t] = df_2y
                 if period == "2y":

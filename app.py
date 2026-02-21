@@ -552,7 +552,7 @@ tnx_last      = last(tnx_s)    # 10Y yield %
 irx_last      = last(irx_s)    # 3M yield %
 # Spread 2Y-10Y: usiamo IRX come proxy breve termine
 # ^IRX = 13-week T-bill; differenza positiva = curva normale
-spread_2y10y  = (tnx_last - irx_last) if (tnx_last and irx_last) else None
+spread_2y10y  = round(tnx_last - irx_last, 2) if (tnx_last and irx_last) else None
 
 # PCR attivo: CSV ha priorità su yfinance
 active_pcr = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
@@ -646,6 +646,56 @@ with tab1:
         st.markdown(
             f'<div style="text-align:center;margin-top:-10px">{signal_pill(composite_label)}</div>',
             unsafe_allow_html=True)
+
+        # ── Mini Scorecard ──
+        _sc_breadth = score_breadth(s5th, ndth, s5fi, ndfi)
+        _sc_vix     = score_vix(vix_last)
+        _sc_pcr     = score_pcr(active_pcr)
+        _sc_skew    = score_skew(skew_last)
+        _sc_hyg     = score_hyg_lqd(hyg_lqd_last)
+        _sc_oi      = score_oi(sp_oi, sp_oi_prev)
+        _sc_margin  = score_margin(margin_debt, margin_debt_prev)
+        _sc_10y     = score_10y(tnx_last)
+
+        def _bar(score, max_s):
+            pct = int((score / max_s) * 100)
+            col = '#00f5c4' if pct >= 80 else ('#f5a623' if pct >= 40 else '#ff4d6d')
+            filled = int(score / max_s * 8)
+            empty  = 8 - filled
+            bar    = f'<span style="color:{col}">{'█' * filled}</span><span style="color:#1c2a3a">{'░' * empty}</span>'
+            return bar, col
+
+        _rows = [
+            ('Breadth',     _sc_breadth, 3),
+            ('VIX',         _sc_vix,     1),
+            ('Put/Call',    _sc_pcr,     1),
+            ('VIX3M/VIX',  _sc_skew,    1),
+            ('HYG/LQD',    _sc_hyg,     1),
+            ('OI Futures',  _sc_oi,      1),
+            ('Margin Debt', _sc_margin,  1),
+            ('10Y Yield',   _sc_10y,     1),
+        ]
+        _rows_html = ''.join([
+            f'<tr>'
+            f'<td style="padding:2px 6px;font-size:0.58rem;color:#7a9ab0;white-space:nowrap">{name}</td>'
+            f'<td style="padding:2px 6px;font-size:0.58rem;letter-spacing:0px">{_bar(sc, mx)[0]}</td>'
+            f'<td style="padding:2px 6px;font-size:0.58rem;color:{_bar(sc, mx)[1]};text-align:right">{sc}/{mx}</td>'
+            f'</tr>'
+            for name, sc, mx in _rows
+        ])
+        st.markdown(f"""
+        <div style="background:#080e14;border:1px solid #1c2a3a;border-radius:4px;
+                    padding:10px 12px;margin-top:10px">
+          <div style="font-size:0.55rem;letter-spacing:3px;color:#4a6070;
+                      text-transform:uppercase;margin-bottom:6px">Score Breakdown</div>
+          <table style="width:100%;border-collapse:collapse">
+            {_rows_html}
+          </table>
+          <div style="font-size:0.52rem;color:#4a6070;margin-top:6px;text-align:right">
+            Totale: {total:.1f} / {max_score} punti
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col_m:
         st.markdown('<div class="section-label">Price &amp; Volatility</div>', unsafe_allow_html=True)
@@ -1242,7 +1292,7 @@ with tab4:
     c_r1, c_r2, c_r3 = st.columns([1, 1, 2])
 
     with c_r1:
-        tnx_val = tnx_last if tnx_last else 4.3
+        tnx_val = round(tnx_last, 2) if tnx_last else 4.3
         fig_tnx = gauge(tnx_val, "10Y Treasury Yield", 1.0, 6.0,
                         thresholds=[42, 58], unit="%", fmt=".2f", invert=True)
         st.plotly_chart(fig_tnx, use_container_width=True, config={"displayModeBar": False})
@@ -1262,7 +1312,7 @@ with tab4:
                 unsafe_allow_html=True)
 
     with c_r2:
-        _sp_val = spread_2y10y if spread_2y10y is not None else 0.0
+        _sp_val = round(spread_2y10y, 2) if spread_2y10y is not None else 0.0
         fig_sp = gauge(_sp_val, "Spread 10Y-3M · Curva", -2.0, 3.0,
                        thresholds=[40, 60], unit="%", fmt="+.2f", invert=False)
         st.plotly_chart(fig_sp, use_container_width=True, config={"displayModeBar": False})

@@ -375,6 +375,8 @@ def fetch_price_data(period="1y"):
                 else:
                     try:
                         cutoff = pd.Timestamp.now(tz="UTC") - pd.tseries.frequencies.to_offset(period)
+                        if df_2y.index.tz is None:
+                        cutoff = cutoff.tz_localize(None)
                         df_disp = df_2y[df_2y.index >= cutoff]
                         data_display[t] = df_disp if not df_disp.empty else df_2y
                     except Exception:
@@ -614,6 +616,8 @@ def _slice_to_period(series, period_str):
         return series
     try:
         cutoff = pd.Timestamp.now(tz="UTC") - pd.tseries.frequencies.to_offset(period_str)
+        if series.index.tz is None:
+            cutoff = cutoff.tz_localize(None)
         sliced = series[series.index >= cutoff]
         return sliced if not sliced.empty else series
     except Exception:

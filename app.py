@@ -346,7 +346,7 @@ def compute_hyg_lqd(data):
 _ss_defaults = {
     "s5th": 55, "s5fi": 48, "ndth": 52, "ndfi": 44,
     "sp_oi": 1_932_596, "sp_oi_prev": 1_918_311,
-    "margin_debt": 798_000, "margin_debt_prev": 782_000,
+    "margin_debt": 1_279_042, "margin_debt_prev": 1_225_597,  # FINRA Jan-26 / Dec-25
     "period": "1y",
 }
 for _k, _v in _ss_defaults.items():
@@ -571,9 +571,13 @@ def score_margin(m, mp):
     return 1 if m > mp else 0
 
 def score_hyg_lqd(ratio):
+    """HYG/LQD price ratio — range reale ~0.72-0.74.
+    > 0.735 = risk-on (HY reggono)
+    0.720-0.735 = neutrale
+    < 0.720 = stress creditizio"""
     if ratio is None: return 0
-    if ratio > 0.88: return 1
-    if ratio > 0.84: return 0.5
+    if ratio > 0.735: return 1
+    if ratio > 0.720: return 0.5
     return 0
 
 total = (score_breadth(s5th, ndth, s5fi, ndfi) +
@@ -644,8 +648,8 @@ with tab1:
         with c7:
             if hyg_lqd_last:
                 hl_v = f"{hyg_lqd_last:.4f}"
-                hl_p = "BULL" if hyg_lqd_last > 0.88 else ("BEAR" if hyg_lqd_last < 0.84 else "NEUTRAL")
-                hl_c = "blue" if hyg_lqd_last > 0.88 else ("red" if hyg_lqd_last < 0.84 else "amber")
+                hl_p = "BULL" if hyg_lqd_last > 0.735 else ("BEAR" if hyg_lqd_last < 0.720 else "NEUTRAL")
+                hl_c = "blue" if hyg_lqd_last > 0.735 else ("red" if hyg_lqd_last < 0.720 else "amber")
             else:
                 hl_v, hl_p, hl_c = "N/A", "NEUTRAL", "amber"
             st.markdown(tile("HYG/LQD · Credit", hl_v, None, hl_c, "", hl_p), unsafe_allow_html=True)
@@ -967,14 +971,14 @@ with tab3:
         # Range 0.80-0.94, invert=False (alto=verde=risk-on)
         # 0.88 = (0.88-0.80)/(0.94-0.80)*100 = 57% → threshold[1]=57
         # 0.84 = (0.84-0.80)/(0.94-0.80)*100 = 29% → threshold[0]=29
-        fig_hl_g = gauge(hl_val, "HYG/LQD · Credit Ratio", 0.80, 0.94,
-                          thresholds=[29, 57], unit="x", fmt=".4f", invert=False)
+        fig_hl_g = gauge(hl_val, "HYG/LQD · Credit Ratio", 0.680, 0.760,
+                          thresholds=[50, 69], unit="x", fmt=".4f", invert=False)
         st.plotly_chart(fig_hl_g, use_container_width=True, config={"displayModeBar": False})
 
         if hyg_lqd_last:
-            if hyg_lqd_last > 0.88:
+            if hyg_lqd_last > 0.735:
                 hl_label, hl_msg, hl_col = "🟢 RISK-ON",  "Spread compressi · HY reggono · no stress sistemico", CYAN
-            elif hyg_lqd_last > 0.84:
+            elif hyg_lqd_last > 0.720:
                 hl_label, hl_msg, hl_col = "🟡 NEUTRALE", "Spread in allargamento moderato · monitorare il trend", AMBER
             else:
                 hl_label, hl_msg, hl_col = "🔴 RISK-OFF", "Spread ampi · stress HY in corso · possibile recessione pricing", RED
@@ -983,7 +987,7 @@ with tab3:
                         border-radius:4px;font-size:0.63rem;line-height:1.9">
               <b style="color:{hl_col}">{hl_label}</b><br>
               <span style="color:#8ab0c8">{hl_msg}</span><br><br>
-              <span style="color:#4a6070">Range: 0.80 stress → 0.94 euforia<br>
+              <span style="color:#4a6070">Range reale: ~0.68 stress → ~0.76 euforia<br>
               HYG = iShares HY Corp · LQD = iShares IG Corp<br>
               Ratio ↓ = spread si allarga = risk-off</span>
             </div>""", unsafe_allow_html=True)
@@ -1001,11 +1005,11 @@ with tab3:
             fig_hl.add_trace(go.Scatter(
                 x=hl_ma20.index, y=hl_ma20.values, name="MA20",
                 line=dict(color=AMBER, width=1.2, dash="dot")))
-            fig_hl.add_hline(y=0.88, line_dash="dot", line_color=CYAN, line_width=1,
-                annotation_text="0.88 Risk-On", annotation_position="right",
+            fig_hl.add_hline(y=0.735, line_dash="dot", line_color=CYAN, line_width=1,
+                annotation_text="0.735 Risk-On", annotation_position="right",
                 annotation_font=dict(color=CYAN, size=8))
-            fig_hl.add_hline(y=0.84, line_dash="dot", line_color=RED, line_width=1,
-                annotation_text="0.84 Stress", annotation_position="right",
+            fig_hl.add_hline(y=0.720, line_dash="dot", line_color=RED, line_width=1,
+                annotation_text="0.720 Stress", annotation_position="right",
                 annotation_font=dict(color=RED, size=8))
             fig_hl.update_layout(**base_layout("HYG/LQD Ratio History", 300))
             st.plotly_chart(fig_hl, use_container_width=True, config={"displayModeBar": False})

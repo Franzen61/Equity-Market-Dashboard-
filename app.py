@@ -1333,14 +1333,6 @@ with tab4:
           Signal: {signal_pill(oi_pill)}<br>
           <span style="color:#8ab0c8">Rising OI + rising price = strong trend · Rising OI + falling price = distribution</span>
         </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="section-label" style="margin-top:20px">COT Data Source</div>', unsafe_allow_html=True)
-        st.markdown("""
-        <div style="font-size:0.62rem;color:#8ab0c8;line-height:1.9">
-          → CFTC pubblica COT ogni venerdì ~15:30 ET<br>
-          → URL: cftc.gov → Market Reports → Commitments of Traders<br>
-          → Filtra: "E-Mini S&P 500 Stock Index" (codice 13874A)<br>
-          → Net Non-Commercial = posizionamento grandi speculatori
           
         # COT parsed data display
         if st.session_state.get("cot_parse_ok"):

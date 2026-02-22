@@ -525,6 +525,26 @@ with st.sidebar:
     margin_debt      = st.number_input("Margin Debt corrente ($M)",        min_value=0, value=st.session_state["margin_debt"],      step=1_000, key="margin_debt")
     margin_debt_prev = st.number_input("Margin Debt mese precedente ($M)", min_value=0, value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
 
+    st.markdown('<div class="sidebar-section">📜 COT Report CSV</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
+        'Fonte: <a href="https://www.barchart.com/futures/quotes/ES*0/commitment-of-traders/disaggregated" target="_blank">Barchart.com</a>'
+        ' → S&P E-Mini → COT Disaggregated<br>'
+        'Template Excel: scarica dalla sidebar → carica il CSV esportato</div>', unsafe_allow_html=True)
+    _cot_uploaded = st.file_uploader("COT CSV (template Equity Pulse)", type=["csv","xlsx"], label_visibility="collapsed", key="cot_uploader")
+    if _cot_uploaded is not None:
+        _cot_bytes = _cot_uploaded.getvalue()
+        if _cot_bytes and len(_cot_bytes) > 10:
+            st.session_state["cot_csv_bytes"] = _cot_bytes
+            st.session_state["cot_csv_name"]  = _cot_uploaded.name
+    if "cot_csv_bytes" in st.session_state:
+        _cot_fname = st.session_state.get("cot_csv_name", "cot.csv")
+        st.markdown(f'<div style="font-size:0.65rem;color:#00f5c4;margin-top:4px;">✅ {_cot_fname}</div>', unsafe_allow_html=True)
+        if st.button("🗑 Rimuovi COT", use_container_width=True):
+            del st.session_state["cot_csv_bytes"]
+            del st.session_state["cot_csv_name"]
+            st.rerun()
+
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
@@ -626,6 +646,119 @@ if "pcr_csv_bytes" in st.session_state:
     except Exception as _e:
         st.session_state["pcr_parse_error"] = str(_e)
 
+
+# ─────────────────────────────────────────────
+#  COT DATA PARSING
+# ─────────────────────────────────────────────
+cot_df        = None
+cot_last      = None  # dict with latest week values
+cot_parse_err = None
+
+if "cot_csv_bytes" in st.session_state:
+    try:
+        import io as _io
+        _cot_name = st.session_state.get("cot_csv_name", "")
+        _cot_bytes = st.session_state["cot_csv_bytes"]
+
+        if _cot_name.endswith(".xlsx"):
+            import openpyxl as _opxl
+            _wb  = _opxl.load_workbook(_io.BytesIO(_cot_bytes), data_only=True)
+            _ws  = _wb.active
+            # Read header from row 5, data from row 6 onward
+            _hdr = [str(_ws.cell(5, c).value or "").strip() for c in range(1, 14)]
+            _rows = []
+            for _r in range(6, _ws.max_row + 1):
+                _row = [_ws.cell(_r, c).value for c in range(1, 14)]
+                if _row[0] is None or str(_row[0]).startswith("→"):
+                    continue
+                _rows.append(_row)
+            cot_df = pd.DataFrame(_rows, columns=_hdr)
+        else:
+            _raw = _cot_bytes.decode("utf-8")
+            cot_df = pd.read_csv(_io.StringIO(_raw))
+
+        # Normalize columns
+        cot_df.columns = [c.strip().lower().replace(" ", "_") for c in cot_df.columns]
+        cot_df["date"] = pd.to_datetime(cot_df["date"], dayfirst=True, errors="coerce")
+        cot_df = cot_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+        for _col in ["am_long","am_short","lf_long","lf_short","dl_long","dl_short"]:
+            if _col in cot_df.columns:
+                cot_df[_col] = pd.to_numeric(cot_df[_col], errors="coerce")
+
+        cot_df["am_net"] = cot_df["am_long"] - cot_df["am_short"]
+        cot_df["lf_net"] = cot_df["lf_long"] - cot_df["lf_short"]
+        cot_df["dl_net"] = cot_df["dl_long"] - cot_df["dl_short"]
+
+        # Percentile within the loaded dataset
+        def _cot_pct(series, value):
+            clean = series.dropna()
+            if len(clean) < 3 or value is None or pd.isna(value):
+                return None
+            return round(float((clean < value).sum() / len(clean) * 100), 1)
+
+        if len(cot_df) > 0:
+            _last = cot_df.iloc[-1]
+            cot_last = {
+                "date":    _last["date"],
+                "am_net":  _last.get("am_net"),
+                "lf_net":  _last.get("lf_net"),
+                "dl_net":  _last.get("dl_net"),
+                "am_long": _last.get("am_long"),
+                "am_short":_last.get("am_short"),
+                "lf_long": _last.get("lf_long"),
+                "lf_short":_last.get("lf_short"),
+                "dl_long": _last.get("dl_long"),
+                "dl_short":_last.get("dl_short"),
+                "am_pct":  _cot_pct(cot_df["am_net"], _last.get("am_net")),
+                "lf_pct":  _cot_pct(cot_df["lf_net"], _last.get("lf_net")),
+                "dl_pct":  _cot_pct(cot_df["dl_net"], _last.get("dl_net")),
+            }
+    except Exception as _ce:
+        cot_parse_err = str(_ce)
+
+# ─────────────────────────────────────────────
+#  COT SCORING (max 1 pt nel composite)
+# ─────────────────────────────────────────────
+def score_cot(cot_last_data):
+    """
+    Logica:
+    - Asset Manager net long > 75° pct  → molto bullish (istituzioni comprano)
+    - Leveraged Funds net short < 25° pct (molto negativo) → contrarian bullish (squeeze potenziale)
+    - Entrambi segnalano bullish → 1 pt
+    - Uno solo → 0.5 pt
+    - Nessuno o bearish → 0 pt
+    """
+    if cot_last_data is None:
+        return 0.0, "N/A"
+    am_p = cot_last_data.get("am_pct")
+    lf_p = cot_last_data.get("lf_pct")
+    pts  = 0
+    notes = []
+    if am_p is not None:
+        if am_p > 65:
+            pts += 0.5
+            notes.append(f"AM {am_p:.0f}°pct ✅")
+        elif am_p > 35:
+            pts += 0.25
+            notes.append(f"AM {am_p:.0f}°pct ⚡")
+        else:
+            notes.append(f"AM {am_p:.0f}°pct ⚠️")
+    if lf_p is not None:
+        # LF net short = basso percentile → contrarian bullish
+        if lf_p < 35:
+            pts += 0.5
+            notes.append(f"LF {lf_p:.0f}°pct ✅ (short squeeze)")
+        elif lf_p < 65:
+            pts += 0.25
+            notes.append(f"LF {lf_p:.0f}°pct ⚡")
+        else:
+            notes.append(f"LF {lf_p:.0f}°pct ⚠️ (long crowded)")
+    return min(pts, 1.0), " · ".join(notes) if notes else "N/A"
+
+_sc_cot, _cot_signal_notes = score_cot(cot_last)
+
+
 def last(series):
     if series is None or len(series) == 0: return None
     try:
@@ -681,7 +814,7 @@ regime_label, regime_color, regime_desc = spy_vix_regime(spy_vix_z_last)
 # ─────────────────────────────────────────────
 #  COMPOSITE SIGNAL  (max_score = 10)
 # ─────────────────────────────────────────────
-max_score = 10
+max_score = 11  # aggiornato: +1 per COT
 
 def score_breadth(s5, nd, s5f, ndf):
     pts = 0
@@ -736,7 +869,8 @@ total = (score_breadth(s5th, ndth, s5fi, ndfi) +
          score_margin(margin_debt, margin_debt_prev) +
          score_hyg_lqd(hyg_lqd_last) +
          score_10y(tnx_last) +
-         score_spy_vix(spy_vix_z_last))
+         score_spy_vix(spy_vix_z_last) +
+         _sc_cot)
 
 composite_pct   = (total / max_score) * 100
 composite_label = "BULL" if composite_pct > 60 else ("BEAR" if composite_pct < 38 else "NEUTRAL")
@@ -744,12 +878,13 @@ composite_label = "BULL" if composite_pct > 60 else ("BEAR" if composite_pct < 3
 # ─────────────────────────────────────────────
 #  TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📡 Overview",
     "📊 Breadth",
     "😰 Sentiment",
     "🏗️ Structure",
     "📐 Regime",
+    "🎯 Positioning COT",
 ])
 
 # ══════════════════════════════════════════════
@@ -794,6 +929,7 @@ with tab1:
             ('Margin Debt',    _sc_margin,   1),
             ('10Y Yield',      _sc_10y,      1),
             ('SPY/VIX Regime', _sc_spy_vix,  1),
+            ('COT Positioning',_sc_cot,      1),
         ]
         _rows_html = ''.join([
             f'<tr>'
@@ -1555,6 +1691,184 @@ with tab5:
             '<span style="color:#ff4d6d">■</span> Risk-Off'
             '</div>', unsafe_allow_html=True)
 
+
+# ══════════════════════════════════════════════
+#  TAB 6 · POSITIONING COT
+# ══════════════════════════════════════════════
+with tab6:
+    st.markdown('<div class="section-label">COT Report · Commitment of Traders — S&P 500 E-Mini Futures</div>', unsafe_allow_html=True)
+
+    # ── No data state ──
+    if cot_df is None or cot_last is None:
+        if cot_parse_err:
+            st.markdown(f'<div style="color:#ff4d6d;font-size:0.72rem;padding:12px;background:#1a0a0a;border:1px solid #ff4d6d;border-radius:4px">⚠️ Errore parsing COT: {cot_parse_err}</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;padding:24px 28px;margin-top:12px">
+          <div style="font-family:Syne;font-size:1rem;font-weight:700;color:#f5a623;margin-bottom:12px">
+            📂 Nessun dato COT caricato
+          </div>
+          <div style="font-size:0.68rem;color:#8ab0c8;line-height:2.1">
+            1. Scarica il template Excel dalla sidebar (link sotto)<br>
+            2. Importalo in Google Sheets → aggiorna ogni settimana con i dati da Barchart<br>
+            3. Esporta come CSV (File → Scarica → CSV)<br>
+            4. Carica il CSV nella sidebar → sezione COT Report
+          </div>
+          <div style="margin-top:14px;font-size:0.63rem;color:#4a6070;line-height:1.9">
+            <b style="color:#7a9ab0">Fonte dati:</b>
+            barchart.com → Futures → S&P 500 E-Mini → Commitment of Traders → Disaggregated<br>
+            <b style="color:#7a9ab0">Frequenza:</b> settimanale (rilascio CFTC ogni venerdì, riferito al martedì)<br>
+            <b style="color:#7a9ab0">Colonne richieste:</b> date · am_long · am_short · lf_long · lf_short · dl_long · dl_short
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # ── Parse error warning if any ──
+        if cot_parse_err:
+            st.markdown(f'<div style="color:#ff4d6d;font-size:0.65rem;padding:8px;background:#1a0a0a;border:1px solid #ff4d6d;border-radius:4px;margin-bottom:8px">⚠️ {cot_parse_err}</div>', unsafe_allow_html=True)
+
+        _cot_date_str = cot_last["date"].strftime("%d %b %Y") if pd.notna(cot_last["date"]) else "N/A"
+
+        # ── Explanation panel ──
+        _cot_composite_color = CYAN if _sc_cot >= 0.75 else (AMBER if _sc_cot >= 0.4 else RED)
+        _cot_composite_label = "BULL" if _sc_cot >= 0.75 else ("NEUTRAL" if _sc_cot >= 0.4 else "BEAR")
+
+        st.markdown(f"""
+        <div style="background:#080e14;border:1px solid #1c2a3a;border-radius:4px;padding:16px 20px;margin-bottom:16px">
+          <div style="display:flex;gap:32px;flex-wrap:wrap">
+            <div style="flex:2;min-width:240px">
+              <div style="font-family:Syne;font-size:0.85rem;font-weight:700;color:{_cot_composite_color};margin-bottom:6px">
+                COT Signal: {_cot_composite_label} &nbsp;·&nbsp; Score: {_sc_cot:.2f}/1.0 &nbsp;·&nbsp; Dati al: {_cot_date_str}
+              </div>
+              <div style="font-size:0.63rem;color:#8ab0c8;line-height:1.9">{_cot_signal_notes}</div>
+              <div style="margin-top:10px;font-size:0.6rem;color:#4a6070;line-height:1.8">
+                <b style="color:#7a9ab0">Come funziona:</b><br>
+                · <span style="color:#4da6ff">Asset Manager</span>: fondi pensione, assicurazioni — posizionamento direzionale strutturale → net long alto = bullish<br>
+                · <span style="color:#f5a623">Leveraged Funds</span>: hedge funds — spesso contrarian → molto short = potenziale squeeze bullish<br>
+                · <span style="color:#7a9ab0">Dealers</span>: market maker — tipicamente contrari al mercato → net short = bull hedging<br>
+                · Il dato è <b>laggard</b> (martedì precedente) → peso 1/11 nel composite, valore confermativo
+              </div>
+            </div>
+            <div style="flex:1;min-width:180px">
+              <table style="font-size:0.6rem;border-collapse:collapse;width:100%">
+                <tr style="color:#4a6070;letter-spacing:1px">
+                  <td style="padding:3px 8px">Categoria</td>
+                  <td style="padding:3px 8px">Net</td>
+                  <td style="padding:3px 8px">Pct</td>
+                </tr>
+                <tr>
+                  <td style="padding:3px 8px;color:#4da6ff">Asset Mgr</td>
+                  <td style="padding:3px 8px;color:#c8d8e8">{f"+{cot_last['am_net']:,.0f}" if cot_last['am_net'] and cot_last['am_net']>0 else f"{cot_last['am_net']:,.0f}" if cot_last['am_net'] else "N/A"}</td>
+                  <td style="padding:3px 8px;color:#00f5c4">{f"{cot_last['am_pct']:.0f}°" if cot_last['am_pct'] is not None else "N/A"}</td>
+                </tr>
+                <tr style="background:#0a0e14">
+                  <td style="padding:3px 8px;color:#f5a623">Lev Funds</td>
+                  <td style="padding:3px 8px;color:#c8d8e8">{f"+{cot_last['lf_net']:,.0f}" if cot_last['lf_net'] and cot_last['lf_net']>0 else f"{cot_last['lf_net']:,.0f}" if cot_last['lf_net'] else "N/A"}</td>
+                  <td style="padding:3px 8px;color:#f5a623">{f"{cot_last['lf_pct']:.0f}°" if cot_last['lf_pct'] is not None else "N/A"}</td>
+                </tr>
+                <tr>
+                  <td style="padding:3px 8px;color:#7a9ab0">Dealers</td>
+                  <td style="padding:3px 8px;color:#c8d8e8">{f"+{cot_last['dl_net']:,.0f}" if cot_last['dl_net'] and cot_last['dl_net']>0 else f"{cot_last['dl_net']:,.0f}" if cot_last['dl_net'] else "N/A"}</td>
+                  <td style="padding:3px 8px;color:#7a9ab0">{f"{cot_last['dl_pct']:.0f}°" if cot_last['dl_pct'] is not None else "N/A"}</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Metric tiles ──
+        def _fmt_net(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)): return "N/A"
+            return f"+{v:,.0f}" if v > 0 else f"{v:,.0f}"
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            _am_col = "blue" if cot_last['am_net'] and cot_last['am_net'] > 0 else "red"
+            st.markdown(tile(
+                "ASSET MGR NET POSITION",
+                _fmt_net(cot_last.get("am_net")),
+                color_class=_am_col,
+                pill_label="BULL" if (cot_last.get("am_pct") or 0) > 65 else ("NEUTRAL" if (cot_last.get("am_pct") or 0) > 35 else "BEAR"),
+                pct=cot_last.get("am_pct"),
+            ), unsafe_allow_html=True)
+        with c2:
+            _lf_net = cot_last.get("lf_net")
+            _lf_bull = _lf_net is not None and _lf_net < 0 and (cot_last.get("lf_pct") or 100) < 35
+            st.markdown(tile(
+                "LEVERAGED FUNDS NET",
+                _fmt_net(_lf_net),
+                color_class="amber" if _lf_bull else ("red" if _lf_net and _lf_net < 0 else ""),
+                pill_label="BULL" if _lf_bull else ("NEUTRAL" if (cot_last.get("lf_pct") or 50) < 65 else "BEAR"),
+                pct=cot_last.get("lf_pct"),
+                pct_invert=True,
+            ), unsafe_allow_html=True)
+        with c3:
+            st.markdown(tile(
+                "DEALERS NET POSITION",
+                _fmt_net(cot_last.get("dl_net")),
+                color_class="",
+                pct=cot_last.get("dl_pct"),
+                pct_invert=True,
+            ), unsafe_allow_html=True)
+
+        # ── Charts — Net positions over time ──
+        if len(cot_df) > 1:
+            st.markdown('<div class="section-label">Net Position Storico — Asset Manager · Leveraged Funds · Dealers</div>', unsafe_allow_html=True)
+
+            fig_cot = go.Figure()
+
+            if "am_net" in cot_df.columns:
+                fig_cot.add_trace(go.Scatter(
+                    x=cot_df["date"], y=cot_df["am_net"],
+                    name="Asset Mgr Net", line=dict(color=BLUE, width=2),
+                    fill="tozeroy", fillcolor="rgba(77,166,255,0.06)"
+                ))
+            if "lf_net" in cot_df.columns:
+                fig_cot.add_trace(go.Scatter(
+                    x=cot_df["date"], y=cot_df["lf_net"],
+                    name="Lev Funds Net", line=dict(color=AMBER, width=2),
+                    fill="tozeroy", fillcolor="rgba(245,166,35,0.06)"
+                ))
+            if "dl_net" in cot_df.columns:
+                fig_cot.add_trace(go.Scatter(
+                    x=cot_df["date"], y=cot_df["dl_net"],
+                    name="Dealers Net", line=dict(color=TEXT_COL, width=1.5, dash="dot"),
+                ))
+
+            fig_cot.add_hline(y=0, line_dash="solid", line_color=GRID_COL, line_width=1)
+            fig_cot.update_layout(**base_layout("COT Net Positions — Contratti", 340))
+            st.plotly_chart(fig_cot, use_container_width=True, config={"displayModeBar": False})
+
+            # ── AM vs LF divergence (spread) ──
+            if "am_net" in cot_df.columns and "lf_net" in cot_df.columns:
+                st.markdown('<div class="section-label">AM vs LF Divergence — Spread (Asset Mgr Net − Leveraged Funds Net)</div>', unsafe_allow_html=True)
+                cot_df["divergence"] = cot_df["am_net"] - cot_df["lf_net"]
+                div_colors = [CYAN if v > 0 else RED for v in cot_df["divergence"]]
+                fig_div = go.Figure()
+                fig_div.add_trace(go.Bar(
+                    x=cot_df["date"], y=cot_df["divergence"],
+                    marker_color=div_colors, opacity=0.85, name="AM − LF"
+                ))
+                div_ma = cot_df["divergence"].rolling(4).mean()
+                fig_div.add_trace(go.Scatter(
+                    x=cot_df["date"], y=div_ma,
+                    name="MA4W", line=dict(color=AMBER, width=1.5)
+                ))
+                fig_div.add_hline(y=0, line_dash="solid", line_color=GRID_COL, line_width=1)
+                fig_div.update_layout(**base_layout(
+                    "Divergenza AM/LF · Cyan=AM domina (bullish) · Rosso=LF domina (bearish/squeeze)", 280))
+                st.plotly_chart(fig_div, use_container_width=True, config={"displayModeBar": False})
+
+        # ── Raw data table ──
+        with st.expander("📋 Dati grezzi COT (ultime 12 settimane)"):
+            _show_cols = [c for c in ["date","am_long","am_short","am_net","lf_long","lf_short","lf_net","dl_long","dl_short","dl_net"] if c in cot_df.columns]
+            _tail = cot_df[_show_cols].tail(12).copy()
+            _tail["date"] = _tail["date"].dt.strftime("%Y-%m-%d")
+            for _nc in ["am_net","lf_net","dl_net","am_long","am_short","lf_long","lf_short","dl_long","dl_short"]:
+                if _nc in _tail.columns:
+                    _tail[_nc] = _tail[_nc].apply(lambda x: f"{x:+,.0f}" if pd.notna(x) and _nc.endswith("net") else (f"{x:,.0f}" if pd.notna(x) else ""))
+            st.dataframe(_tail.iloc[::-1], use_container_width=True, hide_index=True)
+
 # ─────────────────────────────────────────────
 #  FOOTER
 # ─────────────────────────────────────────────
@@ -1563,7 +1877,7 @@ st.markdown("""
 <div style="font-family:Space Mono,monospace;font-size:0.58rem;color:#4a6a80;text-align:center;line-height:2">
   EQUITY PULSE · For informational purposes only · Not financial advice<br>
   Automatico: SPY, QQQ, VIX, VIX3M, HYG, LQD, TNX, IRX (yfinance · finestra 2Y per percentili)<br>
-  Manuale: Breadth (sett.), OI, Margin Debt · P/C: CSV Barchart · SPY/VIX Regime: z-score rolling 63d<br>
+  Manuale: Breadth (sett.), OI, Margin Debt · P/C: CSV Barchart · COT: CSV template Equity Pulse · SPY/VIX Regime: z-score rolling 63d<br>
   Deploy: Streamlit Cloud · Source: GitHub
 </div>
 """, unsafe_allow_html=True)

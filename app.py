@@ -1493,7 +1493,7 @@ with tab5:
         p25r = float(np.percentile(spy_vix_raw_disp.dropna(), 25))
         p50r = float(np.percentile(spy_vix_raw_disp.dropna(), 50))
         p75r = float(np.percentile(spy_vix_raw_disp.dropna(), 75))
-        pct_raw = percentile_of(spy_vix_raw_disp, last(spy_vix_raw_disp)))
+        pct_raw = percentile_of(spy_vix_raw_disp, last(spy_vix_raw_disp))
 
         fig_raw = go.Figure()
         fig_raw.add_hrect(y0=p25r, y1=p75r, fillcolor="rgba(77,166,255,0.05)", line_width=0,

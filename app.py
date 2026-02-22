@@ -1436,12 +1436,13 @@ with tab4:
         st.plotly_chart(fig_md, use_container_width=True, config={"displayModeBar": False})
 
         md_pill = "BULL" if md_chg > 0 else "NEUTRAL"
-        st.markdown(f"""
-        <div style="background:#0e1420;border:1px solid #1c2a3a;padding:12px;border-radius:4px;font-size:0.7rem;line-height:2">
-          MoM Change: <b style="color:{'#00f5c4' if md_chg>0 else '#ff4d6d'}">${md_chg:+,}M ({md_chg_pct:+.1f}%)</b><br>
-          Signal: {signal_pill(md_pill)}<br>
-          <span style="color:#8ab0c8">Rising margin → leveraged risk-on · Rapid collapse → forced selling risk</span>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:#0e1420;border:1px solid #1c2a3a;padding:12px;border-radius:4px;font-size:0.7rem;line-height:2">'
+            f'MoM Change: <b style="color:{"#00f5c4" if md_chg>0 else "#ff4d6d"}">{md_chg:+,}M ({md_chg_pct:+.1f}%)</b><br>'
+            f'Signal: {signal_pill(md_pill)}<br>'
+            f'<span style="color:#8ab0c8">Rising margin - leveraged risk-on - Rapid collapse - forced selling risk</span>'
+            f'</div>',
+            unsafe_allow_html=True)
 
     # 10Y Treasury
     st.markdown('<div class="section-label">Tassi &amp; Curva — Contesto Macro</div>', unsafe_allow_html=True)

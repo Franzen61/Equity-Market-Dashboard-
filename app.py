@@ -679,7 +679,7 @@ if "cot_csv_bytes" in st.session_state:
 
         # Normalize columns
         cot_df.columns = [c.strip().lower().replace(" ", "_") for c in cot_df.columns]
-        cot_df["date"] = pd.to_datetime(cot_df["date"], errors="coerce")
+        cot_df["date"] = pd.to_datetime(cot_df["date"], dayfirst=True, errors="coerce")
         cot_df = cot_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
         for _col in ["am_long","am_short","lf_long","lf_short","dl_long","dl_short"]:

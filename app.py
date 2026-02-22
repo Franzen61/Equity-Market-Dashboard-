@@ -537,7 +537,7 @@ with st.sidebar:
         if cot_text.strip():
             st.session_state["cot_raw_text"] = cot_text
             # Parse E-mini S&P 500 (codice 13874A)
-           try:
+            try:
                 lines = cot_text.splitlines()
                 target_idx = None
                 for i, line in enumerate(lines):

@@ -1832,7 +1832,7 @@ with tab6:
             if "dl_net" in cot_df.columns:
                 fig_cot.add_trace(go.Scatter(
                     x=cot_df["date"], y=cot_df["dl_net"],
-                    name="Dealers Net", line=dict(color=MUTED, width=1.5, dash="dot"),
+                    name="Dealers Net", line=dict(color=TEXT_COL, width=1.5, dash="dot"),
                 ))
 
             fig_cot.add_hline(y=0, line_dash="solid", line_color=GRID_COL, line_width=1)

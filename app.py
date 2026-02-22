@@ -1528,22 +1528,22 @@ with tab4:
 with tab5:
     st.markdown('<div class="section-label">SPY/VIX Regime Indicator — Z-Score Rolling 63 Giorni</div>', unsafe_allow_html=True)
 
-    # Explanation
-    st.markdown(f"""
-    <div style="background:#080e14;border:1px solid #1c2a3a;border-radius:4px;padding:16px 20px;margin-bottom:16px">
-      <div style="display:flex;gap:32px;flex-wrap:wrap">
-        <div style="flex:2;min-width:240px">
-          <div style="font-family:Syne;font-size:0.85rem;font-weight:700;color:{regime_color};margin-bottom:6px">
-            Regime Corrente: {regime_label}
-          </div>
-          <div style="font-size:0.63rem;color:#8ab0c8;line-height:1.8">{regime_desc}</div>
-          <div style="margin-top:10px;font-size:0.6rem;color:#4a6070;line-height:1.7">
-            <b style="color:#7a9ab0">Come funziona:</b><br>
-            1. Raw = SPY ÷ VIX (price-to-fear ratio)<br>
-            2. Z-score = (raw − media 63d) ÷ std 63d  →  stazionario e mean-reverting<br>
-            3. Normalizzato 0–100 per gauge: z=−3→0, z=0→50, z=+3→100<br>
-            4. Ortogonale a breadth, PCR, VIX standalone → aggiunge informazione genuina al composite
-          </div>
+   # Explanation
+    st.markdown(
+        f'<div style="background:#080e14;border:1px solid #1c2a3a;border-radius:4px;padding:16px 20px;margin-bottom:16px">'
+        f'<div style="display:flex;gap:32px;flex-wrap:wrap">'
+        f'<div style="flex:2;min-width:240px">'
+        f'<div style="font-family:Syne;font-size:0.85rem;font-weight:700;color:{regime_color};margin-bottom:6px">'
+        f'Regime Corrente: {regime_label}</div>'
+        f'<div style="font-size:0.63rem;color:#8ab0c8;line-height:1.8">{regime_desc}</div>'
+        f'<div style="margin-top:10px;font-size:0.6rem;color:#4a6070;line-height:1.7">'
+        f'<b style="color:#7a9ab0">Come funziona:</b><br>'
+        f'1. Raw = SPY / VIX (price-to-fear ratio)<br>'
+        f'2. Z-score = (raw - media 63d) / std 63d - stazionario e mean-reverting<br>'
+        f'3. Normalizzato 0-100 per gauge: z=-3 a 0, z=0 a 50, z=+3 a 100<br>'
+        f'4. Ortogonale a breadth, PCR, VIX standalone'
+        f'</div></div>',
+        unsafe_allow_html=True)
         </div>
         <div style="flex:1;min-width:180px">
           <table style="font-size:0.6rem;border-collapse:collapse;width:100%">

@@ -586,15 +586,7 @@ with st.sidebar:
             for k in ["cot_data","cot_raw_text","cot_parse_ok"]:
                 st.session_state.pop(k, None)
             st.rerun()
-```
 
----
-
-**MODIFICA 2 — Tab Structure** (dopo la sezione COT Data Source esistente)
-
-Cerca con CTRL+F:
-```
-COT Data Source
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'

@@ -359,28 +359,22 @@ def tile(label, value, delta=None, color_class="", unit="", pill_label=None,
 @st.cache_data(ttl=14400, show_spinner=False)
 def fetch_price_data(period="1y"):
     """
-    Always fetches 2Y for percentile calculation.
-    Returns (data_display, data_2y) where data_display is period-sliced.
+    Fetches display data for the selected period and 2Y data for percentiles.
+    Returns (data_display, data_2y).
     """
     tickers = ["SPY", "QQQ", "^VIX", "^VIX3M", "^CPC", "HYG", "LQD", "^TNX", "^IRX"]
     data_display = {}
     data_2y      = {}
     for t in tickers:
         try:
-            df_2y = yf.download(t, start="2020-01-01", progress=False, auto_adjust=True, timeout=15)
+            # Dati per il grafico — periodo scelto dall'utente
+            df_disp = yf.download(t, period=period, progress=False, auto_adjust=True, timeout=15)
+            if not df_disp.empty:
+                data_display[t] = df_disp
+            # Dati per i percentili — sempre 2 anni fissi
+            df_2y = yf.download(t, period="2y", progress=False, auto_adjust=True, timeout=15)
             if not df_2y.empty:
                 data_2y[t] = df_2y
-                if period == "2y":
-                    data_display[t] = df_2y
-                else:
-                    try:
-                        cutoff = pd.Timestamp.now(tz="UTC") - pd.tseries.frequencies.to_offset(period)
-                        if df_2y.index.tz is None:
-                            cutoff = cutoff.tz_localize(None)
-                        df_disp = df_2y[df_2y.index >= cutoff]
-                        data_display[t] = df_disp if not df_disp.empty else df_2y
-                    except Exception:
-                        data_display[t] = df_2y
         except Exception:
             pass
     return data_display, data_2y
@@ -587,7 +581,7 @@ with st.spinner("Caricamento dati mercato..."):
     data_display, data_2y = fetch_price_data(period)
     data_hyg_long         = fetch_hyg_lqd_long()
 
-# Series for display (period-sliced)
+# Series for display (periodo scelto dall'utente)
 spy_s        = get_close(data_display, "SPY")
 qqq_s        = get_close(data_display, "QQQ")
 vix_s        = get_close(data_display, "^VIX")
@@ -598,38 +592,17 @@ hyg_lqd_long = compute_hyg_lqd(data_hyg_long)
 skew_ratio, vix3m_s, vix_s2 = compute_skew_vix(data_display)
 pcr_s        = compute_pcr(data_display)
 
-# Series for percentile (always 2Y)
-spy_2y      = get_close(data_2y, "SPY")
-qqq_2y      = get_close(data_2y, "QQQ")
-vix_2y      = get_close(data_2y, "^VIX")
-tnx_2y      = get_close(data_2y, "^TNX")
-pcr_2y      = get_close(data_2y, "^CPC")
-hyg_lqd_2y  = compute_hyg_lqd(data_2y)
+# Series for percentile (sempre 2Y fissi)
+spy_2y        = get_close(data_2y, "SPY")
+qqq_2y        = get_close(data_2y, "QQQ")
+vix_2y        = get_close(data_2y, "^VIX")
+tnx_2y        = get_close(data_2y, "^TNX")
+pcr_2y        = get_close(data_2y, "^CPC")
+hyg_lqd_2y    = compute_hyg_lqd(data_2y)
 skew_2y, _, _ = compute_skew_vix(data_2y)
 
-# SPY/VIX Regime (computed on 2Y for stable z-score, then sliced for charts)
-spy_vix_norm_2y, spy_vix_z_2y, spy_vix_raw_2y = compute_spy_vix_ratio(spy_2y, vix_2y, window=63)
-
-# Slice to display period for charts
-def _slice_to_period(series, period_str):
-    if series is None or period_str in ("2y", "5y"):
-        return series
-    try:
-        days_map = {"6mo": 183, "1y": 365}
-        days = days_map.get(period_str, 365)
-        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
-        if series.index.tz is None:
-            idx = series.index.tz_localize("UTC")
-            series = pd.Series(series.values, index=idx)
-        sliced = series[series.index >= cutoff]
-        return sliced if not sliced.empty else series
-    except Exception:
-        return series
-
-spy_vix_norm_disp = _slice_to_period(spy_vix_norm_2y, period)
-spy_vix_z_disp    = _slice_to_period(spy_vix_z_2y,    period)
-spy_vix_raw_disp  = _slice_to_period(spy_vix_raw_2y,  period)
-
+# SPY/VIX Regime calcolato sui dati display (periodo scelto)
+spy_vix_norm_disp, spy_vix_z_disp, spy_vix_raw_disp = compute_spy_vix_ratio(spy_s, vix_s, window=63)
 # PCR from CSV
 pcr_barchart_val  = None
 pcr_barchart_puts = None

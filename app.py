@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import datetime
 import warnings
+import re          # <-- aggiunto per il parsing CFTC
+import requests    # <-- già presente
 warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
@@ -464,6 +466,174 @@ def compute_spy_vix_ratio(spy_series, vix_series, window=63):
     return z_norm, z, raw
 
 # ─────────────────────────────────────────────
+#  CFTC DATA FETCHING (nuove funzioni)
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)  # cache per 1 giorno
+def fetch_cftc_report():
+    """Scarica e restituisce il report CFTC parsato."""
+    url = "https://www.cftc.gov/dea/futures/financial_lf.htm"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        return parse_cftc_report(response.text)
+    except Exception as e:
+        st.error(f"❌ Errore nel download dei dati CFTC: {e}")
+        return None
+
+def parse_cftc_report(text):
+    """
+    Analizza il file di testo e restituisce un dizionario con tutti i futures.
+    Formato di ritorno:
+    {
+        'report_date': 'YYYY-MM-DD',
+        'data': {
+            '13874A': { 'name': ..., 'open_interest': ..., 'total_change': ..., ... },
+            ...
+        }
+    }
+    """
+    lines = text.splitlines()
+    result = {'data': {}}
+    i = 0
+    n = len(lines)
+
+    # Estrai la data del report (prima riga)
+    if lines and "as of" in lines[0]:
+        date_str = lines[0].split("as of")[-1].strip()
+        try:
+            # Converte "February 17, 2026" in "2026-02-17"
+            dt = datetime.datetime.strptime(date_str, "%B %d, %Y")
+            result['report_date'] = dt.strftime("%Y-%m-%d")
+        except:
+            result['report_date'] = date_str
+    else:
+        result['report_date'] = None
+
+    while i < n:
+        line = lines[i].strip()
+        # Cerca l'inizio di un nuovo strumento: riga che contiene " - " e "CONTRACTS OF"
+        if re.search(r" - [A-Z]", line) and "CONTRACTS OF" in line and not line.startswith("Traders in Financial Futures"):
+            name = line
+            i += 1
+            if i >= n: break
+
+            # Codice CFTC e Open Interest
+            code_match = re.search(r"CFTC Code #(\w+)\s+Open Interest is\s+([\d,]+)", lines[i])
+            if not code_match:
+                i += 1
+                continue
+            code = code_match.group(1)
+            oi = int(code_match.group(2).replace(',', ''))
+            i += 1
+            if i >= n: break
+
+            # Salta fino a "Positions"
+            while i < n and "Positions" not in lines[i]:
+                i += 1
+            if i >= n: break
+            i += 1
+            # Estrai le 14 posizioni
+            positions = []
+            while i < n and len(positions) < 14:
+                nums = re.findall(r'[\d,]+', lines[i])
+                for num in nums:
+                    positions.append(int(num.replace(',', '')))
+                i += 1
+            if len(positions) != 14:
+                continue
+
+            # Salta fino a "Changes from:"
+            while i < n and "Changes from:" not in lines[i]:
+                i += 1
+            if i >= n: break
+            i += 1
+            # Estrai i 14 cambi
+            changes = []
+            while i < n and len(changes) < 14:
+                nums = re.findall(r'-?[\d,]+', lines[i])  # include segno negativo
+                for num in nums:
+                    changes.append(int(num.replace(',', '')))
+                i += 1
+            if len(changes) != 14:
+                continue
+            total_change = changes[0] if changes else 0  # il primo numero è la variazione totale (a volte)
+
+            # Salta fino a "Percent of Open Interest"
+            while i < n and "Percent of Open Interest" not in lines[i]:
+                i += 1
+            if i >= n: break
+            i += 1
+            # Estrai le 14 percentuali
+            pct = []
+            while i < n and len(pct) < 14:
+                nums = re.findall(r'[\d.]+', lines[i])
+                for num in nums:
+                    try:
+                        pct.append(float(num))
+                    except:
+                        pass
+                i += 1
+            if len(pct) != 14:
+                continue
+
+            # Salta fino a "Number of Traders"
+            while i < n and "Number of Traders" not in lines[i]:
+                i += 1
+            if i >= n: break
+            # La riga successiva contiene i numeri dei trader
+            i += 1
+            traders = []
+            while i < n and len(traders) < 14:
+                parts = lines[i].split()
+                for part in parts:
+                    if part.replace('.', '').isdigit():
+                        traders.append(int(part))
+                    elif part == '.':
+                        traders.append(0)
+                i += 1
+            if len(traders) < 14:
+                traders.extend([0] * (14 - len(traders)))
+
+            # Costruisci il record
+            record = {
+                'name': name.split('-')[0].strip(),
+                'open_interest': oi,
+                'total_change': total_change,
+                'positions': {
+                    'dealer_long': positions[0], 'dealer_short': positions[1], 'dealer_spread': positions[2],
+                    'asset_mgr_long': positions[3], 'asset_mgr_short': positions[4], 'asset_mgr_spread': positions[5],
+                    'lev_funds_long': positions[6], 'lev_funds_short': positions[7], 'lev_funds_spread': positions[8],
+                    'other_long': positions[9], 'other_short': positions[10], 'other_spread': positions[11],
+                    'nonrep_long': positions[12], 'nonrep_short': positions[13],
+                },
+                'changes': {
+                    'dealer_long': changes[0], 'dealer_short': changes[1], 'dealer_spread': changes[2],
+                    'asset_mgr_long': changes[3], 'asset_mgr_short': changes[4], 'asset_mgr_spread': changes[5],
+                    'lev_funds_long': changes[6], 'lev_funds_short': changes[7], 'lev_funds_spread': changes[8],
+                    'other_long': changes[9], 'other_short': changes[10], 'other_spread': changes[11],
+                    'nonrep_long': changes[12], 'nonrep_short': changes[13],
+                },
+                'pct': {
+                    'dealer_long': pct[0], 'dealer_short': pct[1], 'dealer_spread': pct[2],
+                    'asset_mgr_long': pct[3], 'asset_mgr_short': pct[4], 'asset_mgr_spread': pct[5],
+                    'lev_funds_long': pct[6], 'lev_funds_short': pct[7], 'lev_funds_spread': pct[8],
+                    'other_long': pct[9], 'other_short': pct[10], 'other_spread': pct[11],
+                    'nonrep_long': pct[12], 'nonrep_short': pct[13],
+                },
+                'num_traders': {
+                    'dealer_long': traders[0], 'dealer_short': traders[1], 'dealer_spread': traders[2],
+                    'asset_mgr_long': traders[3], 'asset_mgr_short': traders[4], 'asset_mgr_spread': traders[5],
+                    'lev_funds_long': traders[6], 'lev_funds_short': traders[7], 'lev_funds_spread': traders[8],
+                    'other_long': traders[9], 'other_short': traders[10], 'other_spread': traders[11],
+                    'nonrep_long': traders[12], 'nonrep_short': traders[13],
+                }
+            }
+            result['data'][code] = record
+        else:
+            i += 1
+    return result
+
+# ─────────────────────────────────────────────
 #  SESSION STATE
 # ─────────────────────────────────────────────
 _ss_defaults = {
@@ -554,6 +724,11 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+    # Pulsante per aggiornare solo i dati CFTC (opzionale)
+    if st.button("🔄 Aggiorna Dati CFTC", use_container_width=True):
+        st.cache_data.clear()  # o potresti usare una chiave specifica, ma va bene così
+        st.rerun()
+
     st.markdown("---")
     st.markdown(
         '<div style="font-size:0.58rem;color:#4a6070;line-height:1.8;">'
@@ -561,7 +736,8 @@ with st.sidebar:
         'Percentili: finestra fissa 2Y rolling<br>'
         'SPY/VIX Regime: z-score rolling 63 giorni<br>'
         'Manuale: Breadth (sett.), OI, Margin Debt<br>'
-        'P/C Ratio: CSV Barchart (giornaliero)'
+        'P/C Ratio: CSV Barchart (giornaliero)<br>'
+        'CFTC: automatico (E-mini S&P 500)'
         '</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
@@ -1313,6 +1489,59 @@ with tab4:
           <span style="color:#8ab0c8">Rising margin → leveraged risk-on · Rapid collapse → forced selling risk</span>
         </div>""", unsafe_allow_html=True)
 
+    # ─────────────────────────────────────────────
+    #  CFTC COT DATA SECTION
+    # ─────────────────────────────────────────────
+    st.markdown('<div class="section-label">CFTC Commitments of Traders — E-mini S&P 500</div>', unsafe_allow_html=True)
+
+    cftc_data = fetch_cftc_report()
+    if cftc_data and '13874A' in cftc_data['data']:
+        emini = cftc_data['data']['13874A']
+        report_date = cftc_data.get('report_date', 'N/A')
+
+        st.markdown(f"""
+        <div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;padding:10px 14px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;font-size:0.6rem;color:#7a9ab0">
+                <span>📅 Report Date: {report_date}</span>
+                <span>🔢 Open Interest: {emini['open_interest']:,} contratti</span>
+                <span>📉 Variazione settimanale: {emini['total_change']:+,}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Mostra i dati in una tabella compatta
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**Asset Manager / Institutional**")
+            st.metric("Long", f"{emini['positions']['asset_mgr_long']:,}", delta=emini['changes']['asset_mgr_long'])
+            st.metric("Short", f"{emini['positions']['asset_mgr_short']:,}", delta=emini['changes']['asset_mgr_short'])
+            st.metric("Spread", f"{emini['positions']['asset_mgr_spread']:,}", delta=emini['changes']['asset_mgr_spread'])
+            net_am = emini['positions']['asset_mgr_long'] - emini['positions']['asset_mgr_short']
+            net_am_delta = (emini['changes']['asset_mgr_long'] - emini['changes']['asset_mgr_short'])
+            st.metric("Net Long", f"{net_am:,}", delta=net_am_delta)
+
+        with col2:
+            st.markdown("**Leveraged Funds**")
+            st.metric("Long", f"{emini['positions']['lev_funds_long']:,}", delta=emini['changes']['lev_funds_long'])
+            st.metric("Short", f"{emini['positions']['lev_funds_short']:,}", delta=emini['changes']['lev_funds_short'])
+            st.metric("Spread", f"{emini['positions']['lev_funds_spread']:,}", delta=emini['changes']['lev_funds_spread'])
+            net_lf = emini['positions']['lev_funds_long'] - emini['positions']['lev_funds_short']
+            net_lf_delta = (emini['changes']['lev_funds_long'] - emini['changes']['lev_funds_short'])
+            st.metric("Net Long", f"{net_lf:,}", delta=net_lf_delta)
+
+        with col3:
+            st.markdown("**Dealer / Intermediary**")
+            st.metric("Long", f"{emini['positions']['dealer_long']:,}", delta=emini['changes']['dealer_long'])
+            st.metric("Short", f"{emini['positions']['dealer_short']:,}", delta=emini['changes']['dealer_short'])
+            st.metric("Spread", f"{emini['positions']['dealer_spread']:,}", delta=emini['changes']['dealer_spread'])
+            net_dl = emini['positions']['dealer_long'] - emini['positions']['dealer_short']
+            net_dl_delta = (emini['changes']['dealer_long'] - emini['changes']['dealer_short'])
+            st.metric("Net Long", f"{net_dl:,}", delta=net_dl_delta)
+
+        st.caption("Dati: CFTC Commitments of Traders - Futures Only. I valori 'Spread' rappresentano posizioni di intermarket spreading.")
+    else:
+        st.warning("Dati CFTC non disponibili. Verifica la connessione o riprova più tardi.")
+
     # 10Y Treasury
     st.markdown('<div class="section-label">Tassi &amp; Curva — Contesto Macro</div>', unsafe_allow_html=True)
     c_r1, c_r2, c_r3 = st.columns([1, 1, 2])
@@ -1564,6 +1793,7 @@ st.markdown("""
   EQUITY PULSE · For informational purposes only · Not financial advice<br>
   Automatico: SPY, QQQ, VIX, VIX3M, HYG, LQD, TNX, IRX (yfinance · finestra 2Y per percentili)<br>
   Manuale: Breadth (sett.), OI, Margin Debt · P/C: CSV Barchart · SPY/VIX Regime: z-score rolling 63d<br>
+  CFTC: automatico E-mini S&P 500 (report settimanale)<br>
   Deploy: Streamlit Cloud · Source: GitHub
 </div>
 """, unsafe_allow_html=True)

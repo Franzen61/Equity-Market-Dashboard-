@@ -1490,10 +1490,10 @@ with tab5:
     st.markdown('<div class="section-label">SPY/VIX Raw Ratio · Bande Percentile 2Y</div>', unsafe_allow_html=True)
     if spy_vix_raw_disp is not None and len(spy_vix_raw_disp) > 5:
         raw_ma20 = spy_vix_raw_disp.rolling(20).mean()
-        p25r = float(np.percentile(spy_vix_raw_2y.dropna(), 25))
-        p50r = float(np.percentile(spy_vix_raw_2y.dropna(), 50))
-        p75r = float(np.percentile(spy_vix_raw_2y.dropna(), 75))
-        pct_raw = percentile_of(spy_vix_raw_2y, last(spy_vix_raw_2y))
+        p25r = float(np.percentile(spy_vix_raw_disp.dropna(), 25))
+        p50r = float(np.percentile(spy_vix_raw_disp.dropna(), 50))
+        p75r = float(np.percentile(spy_vix_raw_disp.dropna(), 75))
+        pct_raw = percentile_of(spy_vix_raw_disp, last(spy_vix_raw_disp)))
 
         fig_raw = go.Figure()
         fig_raw.add_hrect(y0=p25r, y1=p75r, fillcolor="rgba(77,166,255,0.05)", line_width=0,

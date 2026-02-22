@@ -653,8 +653,8 @@ irx_last      = last(irx_s)
 spread_2y10y  = round(tnx_last - irx_last, 2) if (tnx_last and irx_last) else None
 active_pcr    = pcr_barchart_val if pcr_barchart_val else (pcr_last if pcr_last else None)
 
-spy_vix_norm_last = last(spy_vix_norm_2y)
-spy_vix_z_last    = last(spy_vix_z_2y)
+spy_vix_norm_last = last(spy_vix_norm_disp)
+spy_vix_z_last    = last(spy_vix_z_disp)
 
 spy_delta = (spy_last - prev(spy_s)) if spy_s is not None and len(spy_s) > 1 else None
 qqq_delta = (qqq_last - prev(qqq_s)) if qqq_s is not None and len(qqq_s) > 1 else None

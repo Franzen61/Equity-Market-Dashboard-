@@ -524,7 +524,7 @@ with st.sidebar:
         ' → Margin Statistics → aggiorna <b>mensilmente</b></div>', unsafe_allow_html=True)
     margin_debt      = st.number_input("Margin Debt corrente ($M)",        min_value=0, value=st.session_state["margin_debt"],      step=1_000, key="margin_debt")
     margin_debt_prev = st.number_input("Margin Debt mese precedente ($M)", min_value=0, value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
-st.markdown('<div class="sidebar-section">📋 COT Report (CFTC)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section">📋 COT Report (CFTC)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
         'Fonte: <a href="https://www.cftc.gov/dea/futures/financial_lf.htm" target="_blank">CFTC.gov</a>'

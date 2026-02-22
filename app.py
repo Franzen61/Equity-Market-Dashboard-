@@ -1404,12 +1404,12 @@ with tab4:
                 '</div>',
                 unsafe_allow_html=True)
         else:
-            st.markdown("""
-            <div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;
-                        padding:20px;text-align:center;margin-top:12px">
-              <div style="font-size:0.8rem;color:#4a6070">📋 Incolla il report CFTC nella sidebar e premi "Parsa dati CFTC"</div>
-            </div>
-            """, unsafe_allow_html=True)</div>""", unsafe_allow_html=True)
+           st.markdown(
+                '<div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;'
+                'padding:20px;text-align:center;margin-top:12px">'
+                '<div style="font-size:0.8rem;color:#4a6070">Incolla il report CFTC nella sidebar e premi Parsa dati CFTC</div>'
+                '</div>',
+                unsafe_allow_html=True)
 
     with c2:
         st.markdown('<div class="section-label">Margin Debt (FINRA Mensile)</div>', unsafe_allow_html=True)

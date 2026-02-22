@@ -573,15 +573,35 @@ pct_pcr    = percentile_of(pcr_2y, active_pcr)
 # ─────────────────────────────────────────────
 # Weights: 
 # Breadth: 30%, VIX: 20%, PCR: 15%, HYG/LQD: 15%, OI: 10%, COT: 10%
-breadth_score = sum([s5th > 60, s5fi > 55, ndth > 60, ndfi > 55]) / 4 * 100
-vix_score     = 100 if vix_last < 15 else (0 if vix_last > 25 else 50)
-pcr_score     = 100 if active_pcr < 0.8 else (0 if active_pcr > 1.2 else 50)
-hyg_score     = 100 if (hyg_lqd.iloc[-1] > hyg_lqd.mean() if hyg_lqd is not None else 50) else 0
-oi_score      = 100 if sp_oi > sp_oi_prev else 0
 
-# COT Score (10% weight)
+# Breadth Score (30%)
+b_vals = [s5th if s5th is not None else 50, s5fi if s5fi is not None else 50, 
+          ndth if ndth is not None else 50, ndfi if ndfi is not None else 50]
+breadth_score = sum([b_vals[0] > 60, b_vals[1] > 55, b_vals[2] > 60, b_vals[3] > 55]) / 4 * 100
+
+# VIX Score (20%)
+vix_score = 50
+if vix_last is not None:
+    vix_score = 100 if vix_last < 15 else (0 if vix_last > 25 else 50)
+
+# PCR Score (15%)
+pcr_score = 50
+if active_pcr is not None:
+    pcr_score = 100 if active_pcr < 0.8 else (0 if active_pcr > 1.2 else 50)
+
+# HYG/LQD Score (15%)
+hyg_score = 50
+if hyg_lqd is not None and not hyg_lqd.empty:
+    hyg_score = 100 if hyg_lqd.iloc[-1] > hyg_lqd.mean() else 0
+
+# OI Score (10%)
+oi_score = 50
+if sp_oi is not None and sp_oi_prev is not None:
+    oi_score = 100 if sp_oi > sp_oi_prev else 0
+
+# COT Score (10%)
 cot_score = 50
-if st.session_state["cftc_data"]:
+if st.session_state.get("cftc_data") is not None:
     cftc = st.session_state["cftc_data"]
     net_lev = cftc["leveraged_long"] - cftc["leveraged_short"]
     # Bullish if Leveraged Funds are less short than usual or net positive

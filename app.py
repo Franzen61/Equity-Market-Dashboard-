@@ -1394,13 +1394,13 @@ with tab4:
             fig_cot.update_layout(**base_layout("COT Net Position · E-mini S&P 500", 280))
             st.plotly_chart(fig_cot, use_container_width=True, config={"displayModeBar": False})
             
-            st.markdown(f"""
+           st.markdown(f"""
             <div style="font-size:0.63rem;color:#8ab0c8;border:1px solid #1c2a3a;
                         padding:10px 14px;border-radius:4px;line-height:1.9;margin-top:8px">
               <b style="color:#c8d8e8">Interpretazione:</b><br>
-              AM Long + LF Short = divergenza classica → <b style="color:#00f5c4">Smart money compra, speculatori vendono</b><br>
-              AM Short + LF Long = inversione → <b style="color:#ff4d6d">Istituzionali difensivi, retail esuberante</b><br>
-              <span style="color:#4a6070">Dati al: venerdì precedente · aggiorna ogni settimana · codice CFTC: 13874A</span>
+              AM Long + LF Short = divergenza classica: <b style="color:#00f5c4">Smart money compra, speculatori vendono</b><br>
+              AM Short + LF Long = inversione: <b style="color:#ff4d6d">Istituzionali difensivi, retail esuberante</b><br>
+              <span style="color:#4a6070">Dati al: venerdi precedente - aggiorna ogni settimana - codice CFTC: 13874A</span>
             </div>
             """, unsafe_allow_html=True)
         else:

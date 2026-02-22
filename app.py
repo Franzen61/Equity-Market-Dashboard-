@@ -537,55 +537,43 @@ with st.sidebar:
         if cot_text.strip():
             st.session_state["cot_raw_text"] = cot_text
             # Parse E-mini S&P 500 (codice 13874A)
-            try:
-                import re
-                # Trova il blocco 13874A
-                pattern = r'13874A.*?Open Interest is\s+([\d,]+).*?Positions\s+([\d,\s]+?)\s*Changes from.*?Total Change is:\s+([-\d,]+)\s+([-\d,\s]+?)(?=Percent|$)'
-                match = re.search(pattern, cot_text, re.DOTALL)
-                if match:
-                    oi_total = int(match.group(1).replace(",", ""))
-                    pos_line = match.group(2).split()
-                    chg_line = match.group(4).split()
-                    # Posizioni: Dealer L/S/Sp | AM L/S/Sp | LF L/S/Sp | Other L/S/Sp | NonRep L/S
-                    dealer_l  = int(pos_line[0].replace(",",""))
-                    dealer_s  = int(pos_line[1].replace(",",""))
-                    am_l      = int(pos_line[3].replace(",",""))
-                    am_s      = int(pos_line[4].replace(",",""))
-                    lf_l      = int(pos_line[6].replace(",",""))
-                    lf_s      = int(pos_line[7].replace(",",""))
-                    net_am    = am_l - am_s
-                    net_lf    = lf_l - lf_s
-                    st.session_state["cot_data"] = {
-                        "oi": oi_total,
-                        "am_long": am_l, "am_short": am_s, "net_am": net_am,
-                        "lf_long": lf_l, "lf_short": lf_s, "net_lf": net_lf,
-                        "dealer_long": dealer_l, "dealer_short": dealer_s,
-                    }
-                    st.session_state["cot_parse_ok"] = True
-                    st.rerun()
-                else:
+           try:
+                lines = cot_text.splitlines()
+                target_idx = None
+                for i, line in enumerate(lines):
+                    if "13874A" in line or "E-MINI S&P 500 - CHICAGO" in line:
+                        target_idx = i
+                        break
+                if target_idx is None:
                     st.session_state["cot_parse_ok"] = False
-                    st.error("Blocco 13874A non trovato nel testo.")
+                    st.error("Blocco E-mini S&P 500 non trovato.")
+                else:
+                    # Cerca riga OI
+                    oi_total, pos_line = None, None
+                    for line in lines[target_idx:target_idx+15]:
+                        if "Open Interest is" in line:
+                            oi_total = int(''.join(filter(str.isdigit, line.split("Open Interest is")[1][:12])))
+                        if pos_line is None and oi_total is not None:
+                            nums = [x.replace(",","") for x in line.split() if x.replace(",","").lstrip("-").isdigit()]
+                            if len(nums) >= 8:
+                                pos_line = nums
+                    if pos_line and len(pos_line) >= 8:
+                        am_l  = int(pos_line[3])
+                        am_s  = int(pos_line[4])
+                        lf_l  = int(pos_line[6])
+                        lf_s  = int(pos_line[7])
+                        st.session_state["cot_data"] = {
+                            "oi": oi_total,
+                            "am_long": am_l, "am_short": am_s, "net_am": am_l - am_s,
+                            "lf_long": lf_l, "lf_short": lf_s, "net_lf": lf_l - lf_s,
+                            "dealer_long": int(pos_line[0]), "dealer_short": int(pos_line[1]),
+                        }
+                        st.session_state["cot_parse_ok"] = True
+                        st.rerun()
+                    else:
+                        st.error("Posizioni non trovate nel blocco.")
             except Exception as e:
-                st.session_state["cot_parse_ok"] = False
-                st.error(f"Errore parsing: {e}")
-        else:
-            st.warning("Incolla prima il testo del report.")
-    if st.session_state.get("cot_parse_ok"):
-        _cd = st.session_state["cot_data"]
-        net_am_col = "#00f5c4" if _cd["net_am"] > 0 else "#ff4d6d"
-        net_lf_col = "#00f5c4" if _cd["net_lf"] > 0 else "#ff4d6d"
-        st.markdown(f"""
-        <div style="font-size:0.62rem;background:#080e14;border:1px solid #1c2a3a;
-                    padding:8px 10px;border-radius:4px;line-height:2;margin-top:4px">
-          ✅ <b style="color:#00f5c4">E-mini S&P 500 parsato</b><br>
-          Net AM: <b style="color:{net_am_col}">{_cd['net_am']:+,}</b><br>
-          Net LF: <b style="color:{net_lf_col}">{_cd['net_lf']:+,}</b>
-        </div>""", unsafe_allow_html=True)
-        if st.button("🗑 Rimuovi COT", use_container_width=True):
-            for k in ["cot_data","cot_raw_text","cot_parse_ok"]:
-                st.session_state.pop(k, None)
-            st.rerun()
+                st.error(f"Errore: {e}")
 
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
@@ -1395,7 +1383,7 @@ with tab4:
                 '<span style="color:#4a6070">Dati al: venerdi precedente - aggiorna ogni settimana - codice CFTC: 13874A</span>'
                 '</div>',
                 unsafe_allow_html=True)
-        else:
+       else:
            st.markdown(
                 '<div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;'
                 'padding:20px;text-align:center;margin-top:12px">'

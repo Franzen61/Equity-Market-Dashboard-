@@ -466,50 +466,48 @@ def compute_spy_vix_ratio(spy_series, vix_series, window=63):
     return z_norm, z, raw
 
 # ─────────────────────────────────────────────
-#  CFTC DATA FETCHING (con URL corretto)
+#  CFTC DATA FETCHING (versione HTML Parser)
 # ─────────────────────────────────────────────
+from bs4 import BeautifulSoup
+import re
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_cftc_report():
-    """Scarica e restituisce il report CFTC parsato."""
-    # URL corretto per il file di testo puro
-    url = "https://www.cftc.gov/dea/futures/financial_fut.txt"
+    """Scarica la pagina HTML e restituisce i dati parsati."""
+    url = "https://www.cftc.gov/dea/futures/financial_lf.htm"
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, timeout=15, headers=headers)
         response.raise_for_status()
         
-        # Il contenuto dovrebbe ora iniziare con "Traders in Financial Futures"
-        return parse_cftc_report(response.text)
+        # Parsa l'HTML con BeautifulSoup
+        soup = BeautifulSoup(response.text, 'lxml')
+        
+        # Cerca il tag <pre> che contiene i dati tabellari
+        pre_tag = soup.find('pre')
+        if pre_tag:
+            return parse_cftc_from_pre(pre_tag.get_text())
+        else:
+            st.error("❌ Tag <pre> non trovato nella pagina CFTC.")
+            return None
     except Exception as e:
         st.error(f"❌ Errore nel download dei dati CFTC: {e}")
         return None
 
-# La funzione parse_cftc_report rimane identica a prima
-
-def parse_cftc_report(text):
+def parse_cftc_from_pre(text):
     """
-    Analizza il file di testo e restituisce un dizionario con tutti i futures.
-    Formato di ritorno:
-    {
-        'report_date': 'YYYY-MM-DD',
-        'data': {
-            '13874A': { 'name': ..., 'open_interest': ..., 'total_change': ..., ... },
-            ...
-        }
-    }
+    Analizza il testo estratto dal tag <pre> (stesso formato del vecchio parser).
+    Restituisce lo stesso dizionario di prima.
     """
     lines = text.splitlines()
     result = {'data': {}}
     i = 0
     n = len(lines)
 
-    # Estrai la data del report (prima riga)
+    # Data del report (prima riga)
     if lines and "as of" in lines[0]:
         date_str = lines[0].split("as of")[-1].strip()
         try:
-            # Converte "February 17, 2026" in "2026-02-17"
             dt = datetime.datetime.strptime(date_str, "%B %d, %Y")
             result['report_date'] = dt.strftime("%Y-%m-%d")
         except:
@@ -519,13 +517,12 @@ def parse_cftc_report(text):
 
     while i < n:
         line = lines[i].strip()
-        # Cerca l'inizio di un nuovo strumento: riga che contiene " - " e "CONTRACTS OF"
         if re.search(r" - [A-Z]", line) and "CONTRACTS OF" in line and not line.startswith("Traders in Financial Futures"):
             name = line
             i += 1
             if i >= n: break
 
-            # Codice CFTC e Open Interest
+            # Codice e Open Interest
             code_match = re.search(r"CFTC Code #(\w+)\s+Open Interest is\s+([\d,]+)", lines[i])
             if not code_match:
                 i += 1
@@ -535,12 +532,11 @@ def parse_cftc_report(text):
             i += 1
             if i >= n: break
 
-            # Salta fino a "Positions"
+            # Positions
             while i < n and "Positions" not in lines[i]:
                 i += 1
             if i >= n: break
             i += 1
-            # Estrai le 14 posizioni
             positions = []
             while i < n and len(positions) < 14:
                 nums = re.findall(r'[\d,]+', lines[i])
@@ -550,28 +546,26 @@ def parse_cftc_report(text):
             if len(positions) != 14:
                 continue
 
-            # Salta fino a "Changes from:"
+            # Changes
             while i < n and "Changes from:" not in lines[i]:
                 i += 1
             if i >= n: break
             i += 1
-            # Estrai i 14 cambi
             changes = []
             while i < n and len(changes) < 14:
-                nums = re.findall(r'-?[\d,]+', lines[i])  # include segno negativo
+                nums = re.findall(r'-?[\d,]+', lines[i])
                 for num in nums:
                     changes.append(int(num.replace(',', '')))
                 i += 1
             if len(changes) != 14:
                 continue
-            total_change = changes[0] if changes else 0  # il primo numero è la variazione totale (a volte)
+            total_change = changes[0] if changes else 0
 
-            # Salta fino a "Percent of Open Interest"
+            # Percentages
             while i < n and "Percent of Open Interest" not in lines[i]:
                 i += 1
             if i >= n: break
             i += 1
-            # Estrai le 14 percentuali
             pct = []
             while i < n and len(pct) < 14:
                 nums = re.findall(r'[\d.]+', lines[i])
@@ -584,11 +578,10 @@ def parse_cftc_report(text):
             if len(pct) != 14:
                 continue
 
-            # Salta fino a "Number of Traders"
+            # Number of traders
             while i < n and "Number of Traders" not in lines[i]:
                 i += 1
             if i >= n: break
-            # La riga successiva contiene i numeri dei trader
             i += 1
             traders = []
             while i < n and len(traders) < 14:
@@ -602,7 +595,7 @@ def parse_cftc_report(text):
             if len(traders) < 14:
                 traders.extend([0] * (14 - len(traders)))
 
-            # Costruisci il record
+            # Costruzione record (identica a prima)
             record = {
                 'name': name.split('-')[0].strip(),
                 'open_interest': oi,
@@ -640,7 +633,6 @@ def parse_cftc_report(text):
         else:
             i += 1
     return result
-
 # ─────────────────────────────────────────────
 #  SESSION STATE
 # ─────────────────────────────────────────────

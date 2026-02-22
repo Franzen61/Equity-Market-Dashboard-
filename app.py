@@ -524,7 +524,77 @@ with st.sidebar:
         ' → Margin Statistics → aggiorna <b>mensilmente</b></div>', unsafe_allow_html=True)
     margin_debt      = st.number_input("Margin Debt corrente ($M)",        min_value=0, value=st.session_state["margin_debt"],      step=1_000, key="margin_debt")
     margin_debt_prev = st.number_input("Margin Debt mese precedente ($M)", min_value=0, value=st.session_state["margin_debt_prev"], step=1_000, key="margin_debt_prev")
+st.markdown('<div class="sidebar-section">📋 COT Report (CFTC)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
+        'Fonte: <a href="https://www.cftc.gov/dea/futures/financial_lf.htm" target="_blank">CFTC.gov</a>'
+        ' → copia testo pagina → incolla qui</div>', unsafe_allow_html=True)
+    cot_text = st.text_area("Testo report CFTC", height=120,
+        placeholder="Incolla qui il testo del report CFTC...",
+        label_visibility="collapsed",
+        value=st.session_state.get("cot_raw_text", ""))
+    if st.button("🔍 Parsa dati CFTC", use_container_width=True):
+        if cot_text.strip():
+            st.session_state["cot_raw_text"] = cot_text
+            # Parse E-mini S&P 500 (codice 13874A)
+            try:
+                import re
+                # Trova il blocco 13874A
+                pattern = r'13874A.*?Open Interest is\s+([\d,]+).*?Positions\s+([\d,\s]+?)\s*Changes from.*?Total Change is:\s+([-\d,]+)\s+([-\d,\s]+?)(?=Percent|$)'
+                match = re.search(pattern, cot_text, re.DOTALL)
+                if match:
+                    oi_total = int(match.group(1).replace(",", ""))
+                    pos_line = match.group(2).split()
+                    chg_line = match.group(4).split()
+                    # Posizioni: Dealer L/S/Sp | AM L/S/Sp | LF L/S/Sp | Other L/S/Sp | NonRep L/S
+                    dealer_l  = int(pos_line[0].replace(",",""))
+                    dealer_s  = int(pos_line[1].replace(",",""))
+                    am_l      = int(pos_line[3].replace(",",""))
+                    am_s      = int(pos_line[4].replace(",",""))
+                    lf_l      = int(pos_line[6].replace(",",""))
+                    lf_s      = int(pos_line[7].replace(",",""))
+                    net_am    = am_l - am_s
+                    net_lf    = lf_l - lf_s
+                    st.session_state["cot_data"] = {
+                        "oi": oi_total,
+                        "am_long": am_l, "am_short": am_s, "net_am": net_am,
+                        "lf_long": lf_l, "lf_short": lf_s, "net_lf": net_lf,
+                        "dealer_long": dealer_l, "dealer_short": dealer_s,
+                    }
+                    st.session_state["cot_parse_ok"] = True
+                    st.rerun()
+                else:
+                    st.session_state["cot_parse_ok"] = False
+                    st.error("Blocco 13874A non trovato nel testo.")
+            except Exception as e:
+                st.session_state["cot_parse_ok"] = False
+                st.error(f"Errore parsing: {e}")
+        else:
+            st.warning("Incolla prima il testo del report.")
+    if st.session_state.get("cot_parse_ok"):
+        _cd = st.session_state["cot_data"]
+        net_am_col = "#00f5c4" if _cd["net_am"] > 0 else "#ff4d6d"
+        net_lf_col = "#00f5c4" if _cd["net_lf"] > 0 else "#ff4d6d"
+        st.markdown(f"""
+        <div style="font-size:0.62rem;background:#080e14;border:1px solid #1c2a3a;
+                    padding:8px 10px;border-radius:4px;line-height:2;margin-top:4px">
+          ✅ <b style="color:#00f5c4">E-mini S&P 500 parsato</b><br>
+          Net AM: <b style="color:{net_am_col}">{_cd['net_am']:+,}</b><br>
+          Net LF: <b style="color:{net_lf_col}">{_cd['net_lf']:+,}</b>
+        </div>""", unsafe_allow_html=True)
+        if st.button("🗑 Rimuovi COT", use_container_width=True):
+            for k in ["cot_data","cot_raw_text","cot_parse_ok"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+```
 
+---
+
+**MODIFICA 2 — Tab Structure** (dopo la sezione COT Data Source esistente)
+
+Cerca con CTRL+F:
+```
+COT Data Source
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
@@ -1279,7 +1349,75 @@ with tab4:
           → URL: cftc.gov → Market Reports → Commitments of Traders<br>
           → Filtra: "E-Mini S&P 500 Stock Index" (codice 13874A)<br>
           → Net Non-Commercial = posizionamento grandi speculatori
-        </div>""", unsafe_allow_html=True)
+          
+        # COT parsed data display
+        if st.session_state.get("cot_parse_ok"):
+            _cd = st.session_state["cot_data"]
+            st.markdown('<div class="section-label" style="margin-top:16px">COT · E-mini S&P 500 (13874A)</div>', unsafe_allow_html=True)
+            
+            net_am = _cd["net_am"]
+            net_lf = _cd["net_lf"]
+            divergence = net_am - net_lf
+            
+            am_col  = CYAN if net_am > 0 else RED
+            lf_col  = CYAN if net_lf > 0 else RED
+            div_col = CYAN if divergence > 500000 else (RED if divergence < 0 else AMBER)
+            
+            cot_signal = "BULL" if (net_am > 0 and net_lf < 0) else ("BEAR" if (net_am < 0 and net_lf > 0) else "NEUTRAL")
+            
+            ca, cb, cc = st.columns(3)
+            with ca:
+                st.markdown(tile(
+                    "NET ASSET MANAGER",
+                    f"{net_am:+,}",
+                    color_class="blue" if net_am > 0 else "red"
+                ), unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.6rem;color:#7a9ab0;margin-top:4px">Long: {_cd["am_long"]:,} · Short: {_cd["am_short"]:,}</div>', unsafe_allow_html=True)
+            with cb:
+                st.markdown(tile(
+                    "NET LEVERAGED FUNDS",
+                    f"{net_lf:+,}",
+                    color_class="red" if net_lf < 0 else "blue"
+                ), unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.6rem;color:#7a9ab0;margin-top:4px">Long: {_cd["lf_long"]:,} · Short: {_cd["lf_short"]:,}</div>', unsafe_allow_html=True)
+            with cc:
+                st.markdown(tile(
+                    "DIVERGENZA AM vs LF",
+                    f"{divergence:+,}",
+                    color_class="blue" if divergence > 0 else "red",
+                    pill_label=cot_signal
+                ), unsafe_allow_html=True)
+                
+            # Bar chart divergenza
+            fig_cot = go.Figure()
+            fig_cot.add_trace(go.Bar(
+                x=["Asset Manager", "Leveraged Funds"],
+                y=[net_am, net_lf],
+                marker_color=[CYAN if net_am > 0 else RED, CYAN if net_lf > 0 else RED],
+                text=[f"{net_am:+,}", f"{net_lf:+,}"],
+                textposition="outside",
+                textfont=dict(size=11, color=TEXT_COL)
+            ))
+            fig_cot.add_hline(y=0, line_color=GRID_COL, line_width=1)
+            fig_cot.update_layout(**base_layout("COT Net Position · E-mini S&P 500", 280))
+            st.plotly_chart(fig_cot, use_container_width=True, config={"displayModeBar": False})
+            
+            st.markdown(f"""
+            <div style="font-size:0.63rem;color:#8ab0c8;border:1px solid #1c2a3a;
+                        padding:10px 14px;border-radius:4px;line-height:1.9;margin-top:8px">
+              <b style="color:#c8d8e8">Interpretazione:</b><br>
+              AM Long + LF Short = divergenza classica → <b style="color:#00f5c4">Smart money compra, speculatori vendono</b><br>
+              AM Short + LF Long = inversione → <b style="color:#ff4d6d">Istituzionali difensivi, retail esuberante</b><br>
+              <span style="color:#4a6070">Dati al: venerdì precedente · aggiorna ogni settimana · codice CFTC: 13874A</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background:#0e1420;border:1px solid #1c2a3a;border-radius:4px;
+                        padding:20px;text-align:center;margin-top:12px">
+              <div style="font-size:0.8rem;color:#4a6070">📋 Incolla il report CFTC nella sidebar e premi "Parsa dati CFTC"</div>
+            </div>
+            """, unsafe_allow_html=True)</div>""", unsafe_allow_html=True)
 
     with c2:
         st.markdown('<div class="section-label">Margin Debt (FINRA Mensile)</div>', unsafe_allow_html=True)

@@ -466,31 +466,27 @@ def compute_spy_vix_ratio(spy_series, vix_series, window=63):
     return z_norm, z, raw
 
 # ─────────────────────────────────────────────
-#  CFTC DATA FETCHING (con debug e User-Agent)
+#  CFTC DATA FETCHING (con URL corretto)
 # ─────────────────────────────────────────────
-@st.cache_data(ttl=86400, show_spinner=False)  # cache per 1 giorno
+@st.cache_data(ttl=86400, show_spinner=False)
 def fetch_cftc_report():
     """Scarica e restituisce il report CFTC parsato."""
-    url = "https://www.cftc.gov/dea/futures/financial_lf.htm"
+    # URL corretto per il file di testo puro
+    url = "https://www.cftc.gov/dea/futures/financial_fut.txt"
     try:
-        # Aggiungiamo un User-Agent per sembrare un browser normale
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         response = requests.get(url, timeout=15, headers=headers)
         response.raise_for_status()
         
-        # 🔍 DEBUG: mostra informazioni sulla risposta
-        st.write("### 🔍 Debug CFTC")
-        st.write(f"**Status code:** {response.status_code}")
-        st.write(f"**Lunghezza testo:** {len(response.text)} caratteri")
-        st.write("**Prime 500 caratteri del report:**")
-        st.code(response.text[:500])
-        
+        # Il contenuto dovrebbe ora iniziare con "Traders in Financial Futures"
         return parse_cftc_report(response.text)
     except Exception as e:
         st.error(f"❌ Errore nel download dei dati CFTC: {e}")
         return None
+
+# La funzione parse_cftc_report rimane identica a prima
 
 def parse_cftc_report(text):
     """

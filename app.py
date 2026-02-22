@@ -475,6 +475,13 @@ def fetch_cftc_report():
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
+        
+        # 🔍 DEBUG: mostra informazioni sulla risposta
+        st.write(f"**Debug CFTC** - Status code: {response.status_code}")
+        st.write(f"Lunghezza testo: {len(response.text)} caratteri")
+        st.write("Prime 500 caratteri del report:")
+        st.code(response.text[:500])
+        
         return parse_cftc_report(response.text)
     except Exception as e:
         st.error(f"❌ Errore nel download dei dati CFTC: {e}")

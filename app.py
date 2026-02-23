@@ -1355,18 +1355,30 @@ with tab3:
                                          fill="tozeroy", fillcolor="rgba(0,245,196,0.05)"))
             fig_hl.add_trace(go.Scatter(x=hl_ma20.index, y=hl_ma20.values, name="MA20",
                                          line=dict(color=AMBER, width=1.2, dash="dot")))
-            if hyg_lqd_2y is not None and len(hyg_lqd_2y) > 20:
-                p25h = float(np.percentile(hyg_lqd_2y.dropna(), 25))
-                p75h = float(np.percentile(hyg_lqd_2y.dropna(), 75))
-                fig_hl.add_hline(y=p75h, line_dash="dot", line_color=CYAN, line_width=1,
-                                  annotation_text=f"75° pct ({p75h:.4f})", annotation_position="right",
+
+            # Bande calcolate sullo STESSO dataset del grafico (_hl_data = 5Y)
+            if len(_hl_data) > 20:
+                p25h_5y = float(np.percentile(_hl_data.dropna(), 25))
+                p75h_5y = float(np.percentile(_hl_data.dropna(), 75))
+                p50h_5y = float(np.percentile(_hl_data.dropna(), 50))
+                fig_hl.add_hline(y=p75h_5y, line_dash="dot", line_color=CYAN, line_width=1.2,
+                                  annotation_text=f"75 pct 5Y ({p75h_5y:.4f})", annotation_position="right",
                                   annotation_font=dict(color=CYAN, size=8))
-                fig_hl.add_hline(y=p25h, line_dash="dot", line_color=RED, line_width=1,
-                                  annotation_text=f"25° pct ({p25h:.4f})", annotation_position="right",
+                fig_hl.add_hline(y=p50h_5y, line_dash="dot", line_color=AMBER, line_width=0.8,
+                                  annotation_text=f"Mediana 5Y ({p50h_5y:.4f})", annotation_position="right",
+                                  annotation_font=dict(color=AMBER, size=8))
+                fig_hl.add_hline(y=p25h_5y, line_dash="dot", line_color=RED, line_width=1.2,
+                                  annotation_text=f"25 pct 5Y ({p25h_5y:.4f})", annotation_position="right",
                                   annotation_font=dict(color=RED, size=8))
+
+            # Livelli fissi di riferimento (invariati)
             fig_hl.add_hline(y=0.80, line_dash="solid", line_color=CYAN, line_width=0.5, opacity=0.3)
             fig_hl.add_hline(y=0.70, line_dash="solid", line_color=RED,  line_width=0.5, opacity=0.3)
-            fig_hl.update_layout(**base_layout("HYG/LQD · Bande percentile 2Y", 300))
+
+            # Titolo con nota esplicita sulla finestra usata per le bande
+            _hl_window_label = "5Y" if (hyg_lqd_long is not None and len(hyg_lqd_long) > 5) else "1Y"
+            fig_hl.update_layout(**base_layout(
+                f"HYG/LQD · Bande percentile {_hl_window_label} (coerenti con grafico)", 300))
             fig_hl.update_yaxes(range=[0.55, 1.05])
             st.plotly_chart(fig_hl, use_container_width=True, config={"displayModeBar": False})
 

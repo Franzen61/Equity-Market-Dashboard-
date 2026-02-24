@@ -548,7 +548,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://www.barchart.com/options/put-call-ratios/spx" target="_blank">Barchart.com</a>'
+        'Fonte: <a href="https://www.barchart.com/stocks/quotes/$SPX/put-call-ratios" target="_blank">Barchart.com</a>'
         ' → SPX Options → Put/Call Ratios → <b>Download CSV</b></div>', unsafe_allow_html=True)
     _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
     if _uploaded is not None:

@@ -528,7 +528,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section">📜 COT Report CSV</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://www.barchart.com/futures/quotes/ES*0/commitment-of-traders/disaggregated" target="_blank">Barchart.com</a>'
+        'Fonte: <a href="https://www.cftc.gov/dea/futures/financial_lf.htm" target="_blank">cftc.gov</a>'
         ' → S&P E-Mini → COT Disaggregated<br>'
         'Template Excel: scarica dalla sidebar → carica il CSV esportato</div>', unsafe_allow_html=True)
     _cot_uploaded = st.file_uploader("COT CSV (template Equity Pulse)", type=["csv","xlsx"], label_visibility="collapsed", key="cot_uploader")

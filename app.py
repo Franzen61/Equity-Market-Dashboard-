@@ -814,7 +814,8 @@ regime_label, regime_color, regime_desc = spy_vix_regime(spy_vix_z_last)
 # ─────────────────────────────────────────────
 #  COMPOSITE SIGNAL  (max_score = 10)
 # ─────────────────────────────────────────────
-max_score = 11  # aggiornato: +1 per COT
+max_score = 12  # breadth=3pt + 9 scorer da 1pt = 12 totale
+                # NB: breadth pesa 3/12=25% intenzionalmente (4 input manuali)
 
 def score_breadth(s5, nd, s5f, ndf):
     pts = 0
@@ -920,7 +921,7 @@ with tab1:
             return bar, col
 
         _rows = [
-            ('Breadth',        _sc_breadth,  3),
+            ('Breadth (×3)',   _sc_breadth,  3),  # 25% del composite
             ('VIX',            _sc_vix,      1),
             ('Put/Call',       _sc_pcr,      1),
             ('VIX3M/VIX',     _sc_skew,     1),

@@ -528,7 +528,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section">📜 COT Report CSV</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://www.barchart.com/futures/quotes/ES*0/commitment-of-traders/disaggregated" target="_blank">Barchart.com</a>'
+        'Fonte: <a href="https://www.cftc.gov/dea/futures/financial_lf.htm" target="_blank">cftc.gov</a>'
         ' → S&P E-Mini → COT Disaggregated<br>'
         'Template Excel: scarica dalla sidebar → carica il CSV esportato</div>', unsafe_allow_html=True)
     _cot_uploaded = st.file_uploader("COT CSV (template Equity Pulse)", type=["csv","xlsx"], label_visibility="collapsed", key="cot_uploader")
@@ -548,7 +548,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section">📂 Put/Call CSV (Barchart)</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:0.68rem;color:#8ab0c8;line-height:1.7;margin-bottom:6px;">'
-        'Fonte: <a href="https://www.barchart.com/options/put-call-ratios/spx" target="_blank">Barchart.com</a>'
+        'Fonte: <a href="https://www.barchart.com/stocks/quotes/$SPX/put-call-ratios" target="_blank">Barchart.com</a>'
         ' → SPX Options → Put/Call Ratios → <b>Download CSV</b></div>', unsafe_allow_html=True)
     _uploaded = st.file_uploader("SPX P/C CSV", type="csv", label_visibility="collapsed")
     if _uploaded is not None:
@@ -814,7 +814,8 @@ regime_label, regime_color, regime_desc = spy_vix_regime(spy_vix_z_last)
 # ─────────────────────────────────────────────
 #  COMPOSITE SIGNAL  (max_score = 10)
 # ─────────────────────────────────────────────
-max_score = 11  # aggiornato: +1 per COT
+max_score = 12  # breadth=3pt + 9 scorer da 1pt = 12 totale
+                # NB: breadth pesa 3/12=25% intenzionalmente (4 input manuali)
 
 def score_breadth(s5, nd, s5f, ndf):
     pts = 0
@@ -920,7 +921,7 @@ with tab1:
             return bar, col
 
         _rows = [
-            ('Breadth',        _sc_breadth,  3),
+            ('Breadth (×3)',   _sc_breadth,  3),  # 25% del composite
             ('VIX',            _sc_vix,      1),
             ('Put/Call',       _sc_pcr,      1),
             ('VIX3M/VIX',     _sc_skew,     1),

@@ -376,7 +376,8 @@ def fetch_price_data(period="1y"):
             if not df_2y.empty:
                 data_2y[t] = df_2y
         except Exception:
-            pass
+           except Exception as e:
+            st.sidebar.error(f"{t}: {e}")
     return data_display, data_2y
 
 @st.cache_data(ttl=14400, show_spinner=False)

@@ -375,8 +375,7 @@ def fetch_price_data(period="1y"):
             df_2y = yf.download(t, period="2y", progress=False, auto_adjust=True, timeout=15)
             if not df_2y.empty:
                 data_2y[t] = df_2y
-        except Exception:
-           except Exception as e:
+        except Exception as e:
             st.sidebar.error(f"{t}: {e}")
     return data_display, data_2y
 

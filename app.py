@@ -375,8 +375,8 @@ def fetch_price_data(period="1y"):
             df_2y = yf.download(t, period="2y", progress=False, auto_adjust=True, timeout=15)
             if not df_2y.empty:
                 data_2y[t] = df_2y
-        except Exception as e:
-            st.sidebar.error(f"{t}: {e}")
+        except Exception:
+            pass
     return data_display, data_2y
 
 @st.cache_data(ttl=14400, show_spinner=False)
@@ -394,9 +394,7 @@ def fetch_hyg_lqd_long():
 def get_close(data, ticker):
     df = data.get(ticker)
     if df is None or df.empty:
-        st.sidebar.warning(f"{ticker}: dataframe vuoto")
         return None
-    st.sidebar.info(f"{ticker} colonne: {list(df.columns)}")
     close = df["Close"] if "Close" in df.columns else df.iloc[:, 0]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]

@@ -394,7 +394,9 @@ def fetch_hyg_lqd_long():
 def get_close(data, ticker):
     df = data.get(ticker)
     if df is None or df.empty:
+        st.sidebar.warning(f"{ticker}: dataframe vuoto")
         return None
+    st.sidebar.info(f"{ticker} colonne: {list(df.columns)}")
     close = df["Close"] if "Close" in df.columns else df.iloc[:, 0]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
